@@ -65,8 +65,14 @@ test('Removed item handled', () => { const f = fixture(); f.media.nodeId = 'gone
 test('Offline media blocked', () => { const f = fixture(); f.media.isOffline = () => true; assert.equal(insert(f).ok, false); assert.equal(f.calls.length, 0); });
 test('Bins and sequences rejected', () => { const f = fixture(); assert.equal(JSON.parse(f.host.insert('p1', 's1', 'bin', 0, 0)).ok, false); f.media.isSequence = () => true; assert.equal(insert(f).ok, false); });
 test('Host insertion failure and exception are reported', () => { const f = fixture(); f.seq.overwriteClip = () => false; assert.equal(insert(f).ok, false); f.seq.overwriteClip = () => { throw Error('Locked'); }; assert.equal(insert(f).error, 'Locked'); });
-function panelFixture(initialQuery = 'Footage', failResize = false) {
-  const f = fixture(), elements = {}, pending = [], events = {};
+function panelFixture(initialQuery = 'Footage', failResize = false, audioMedia = false) {
+  const f = fixture(), elements = {}, pending = [], events = {}, players = [], registeredKeys = [];
+  if(audioMedia) f.media.getMediaPath=()=> 'C:/audio.mp3';
+  function FakeAudio(){this.paused=true;players.push(this);}
+  FakeAudio.prototype.play=function(){this.paused=false;this.onplaying();};
+  FakeAudio.prototype.pause=function(){this.paused=true;};
+  FakeAudio.prototype.removeAttribute=function(){this.src='';};
+  FakeAudio.prototype.load=function(){};
   function element(tag, id) {
     return {
       tag, id, value: '', children: [], attrs: {}, listeners: {}, disabled: false,
@@ -80,11 +86,11 @@ function panelFixture(initialQuery = 'Footage', failResize = false) {
   }
   for (const id of ['status', 'refresh', 'close', 'insert', 'results', 'query', 'count', 'context']) elements[id] = element(['video','audio'].includes(id) ? 'select' : 'div', id);
   const document = { getElementById: id => elements[id], createElement: tag => element(tag), addEventListener() {} };
-  const ctx = vm.createContext({ document, BinSearch: search, setTimeout: fn => fn(), window: { requestAnimationFrame: () => { throw Error('Rendering callbacks unavailable'); }, __adobe_cep__: { addEventListener: (name, fn) => { events[name] = fn; }, resizeContent: () => { if (failResize) throw Error('Native resize failed'); }, closeExtension: () => { f.closed = true; }, evalScript: (script, cb) => pending.push(() => cb(vm.runInContext(script, f.ctx))) } } });
+  const ctx = vm.createContext({ document, BinSearchShortcut: require('../shortcut.js'), Audio: FakeAudio, ProntoPreview: require('../preview.js'), BinSearch: search, setTimeout: fn => fn(), window: { requestAnimationFrame: () => { throw Error('Rendering callbacks unavailable'); }, __adobe_cep__: { registerKeyEventsInterest: value => registeredKeys.push(JSON.parse(value)), dispatchEvent: event => { assert.equal(typeof event,'object'); assert.equal(event.extensionId,'local.binsearch.popup'); }, addEventListener: (name, fn) => { events[name] = fn; }, resizeContent: () => { if (failResize) throw Error('Native resize failed'); }, closeExtension: () => { f.closed = true; }, evalScript: (script, cb) => pending.push(() => cb(vm.runInContext(script, f.ctx))) } } });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../panel.js'), 'utf8'), ctx);
   if (initialQuery) { elements.query.value = initialQuery; elements.query.listeners.input(); pending.shift()(); }
   const key = (value, extra = {}) => elements.query.listeners.keydown({ key: value, preventDefault() {}, ...extra });
-  return Object.assign(f, { elements, pending, key, events });
+  return Object.assign(f, { elements, pending, key, events, players, registeredKeys });
 }
 test('Keyboard navigation, Enter and in-flight duplicate protection', () => {
   const f = panelFixture(); f.key('ArrowDown'); f.key('ArrowDown');
@@ -268,5 +274,62 @@ test('Multichannel target fallback checks the complete destination span',()=>{
  const f=fixture(); f.media.getAudioChannelMapping={audioClipsNumber:2};
  f.seq.audioTracks=tracks([track(),target(track()),track([[10,20]]),track(),track()]);
  assert.equal(insert(f).audio,3);
+});
+test('Preview resolves an online audio path without touching the timeline',()=>{
+ const f=audioFixture(); const r=JSON.parse(f.host.previewSource('p1','clip-1'));
+ assert.equal(r.ok,true); assert.equal(r.path,'C:/media/sound.wav'); assert.equal(f.calls.length,0);
+});
+test('Preview rejects stale project, removed item, offline media and non-audio',()=>{
+ const f=audioFixture();
+ assert.equal(JSON.parse(f.host.previewSource('other','clip-1')).ok,false);
+ assert.equal(JSON.parse(f.host.previewSource('p1','missing')).ok,false);
+ f.media.isOffline=()=>true; assert.equal(JSON.parse(f.host.previewSource('p1','clip-1')).ok,false);
+ f.media.isOffline=()=>false; f.media.getMediaPath=()=> 'C:/video.mov';
+ assert.equal(JSON.parse(f.host.previewSource('p1','clip-1')).ok,false); assert.equal(f.calls.length,0);
+});
+test('Ctrl+Space previews without inserting; Escape releases audio',()=>{
+ const f=panelFixture('台北',false,true);
+ f.key(' ',{ctrlKey:true}); assert.equal(f.pending.length,1); f.pending.shift()();
+ assert.equal(f.players.length,1);assert.equal(f.calls.length,0);assert.equal(f.players[0].paused,false);
+ f.key('Escape');assert.equal(f.players[0].paused,true);assert.equal(f.players[0].src,'');
+});
+test('Preview button stops propagation and does not insert',()=>{
+ const f=panelFixture('台北',false,true);let stopped=false;
+ f.elements['preview-0'].listeners.click({detail:1,stopPropagation(){stopped=true;},preventDefault(){}});
+ f.pending.shift()();assert.equal(stopped,true);assert.equal(f.players.length,1);assert.equal(f.calls.length,0);
+ f.elements.query.value='other';f.elements.query.listeners.input();assert.equal(f.players[0].paused,true);
+});
+test('Preview shortcut updates in the retained popup and requires exact modifiers',()=>{
+ const f=panelFixture('台北',false,true);
+ f.events['local.binsearch.previewShortcut']({data:'Alt+P'});
+ f.key(' ',{ctrlKey:true});assert.equal(f.pending.length,0);
+ f.key('p',{altKey:true,shiftKey:true});assert.equal(f.pending.length,0);
+ f.key('p',{altKey:true});assert.equal(f.pending.length,1);f.pending.shift()();
+ assert.equal(f.players[0].paused,false);
+ assert.match(f.elements['preview-0'].title,/Alt\+P/);
+});
+test('Saved Ctrl+W replaces Ctrl+Space and registers with CEP',()=>{
+ const f=panelFixture('台北',false,true);
+ f.events['local.binsearch.previewShortcut']({data:'Ctrl+W'});
+ assert.equal(f.registeredKeys.at(-1)[0].keyCode,87);
+ assert.equal(f.registeredKeys.at(-1)[0].ctrlKey,true);
+ f.key(' ',{ctrlKey:true}); assert.equal(f.pending.length,0);
+ f.key('w',{ctrlKey:true}); assert.equal(f.pending.length,1);f.pending.shift()();
+ assert.equal(f.players[0].paused,false);assert.match(f.elements['preview-0'].title,/Ctrl\+W/);
+});
+test('Native Space preview event plays without inserting',()=>{
+ const f=panelFixture('台北',false,true);
+ f.events['local.binsearch.previewToggle']();assert.equal(f.pending.length,1);f.pending.shift()();
+ assert.equal(f.players[0].paused,false);assert.equal(f.calls.length,0);
+ f.events['local.binsearch.previewToggle']();assert.equal(f.players[0].paused,true);
+ f.events['local.binsearch.previewShortcut']({data:'disabled'});
+ f.events['local.binsearch.previewToggle']();assert.equal(f.players[0].paused,true);
+});
+test('Space key aliases match with exact modifiers',()=>{
+ const shortcut=require('../shortcut.js'); const config=shortcut.parse('Alt+Space');
+ for(const event of [{key:'Spacebar'},{key:'Space'},{keyCode:32},{which:32},{code:'Space'}]) {
+   assert.equal(shortcut.matches({...event,altKey:true},config),true);
+   assert.equal(shortcut.matches({...event,ctrlKey:true},config),false);
+ }
 });
 console.log(`${passed} tests passed. These are mock-host tests, not Premiere integration tests.`);

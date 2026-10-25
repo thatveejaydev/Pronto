@@ -2,6 +2,31 @@
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
   var data = null, matches = [], selected = 0, busy = false, indexing = false, lastHeight = 0, generation = 0, prepared = null;
+  var previewShortcut = BinSearchShortcut.preview('Ctrl+Space');
+  function registerPreviewKey() {
+    var bridge = window.__adobe_cep__;
+    if (!previewShortcut) { if (bridge && bridge.registerKeyEventsInterest) bridge.registerKeyEventsInterest(''); return; }
+    if (bridge && bridge.registerKeyEventsInterest) bridge.registerKeyEventsInterest(JSON.stringify([{
+      keyCode: previewShortcut.key, ctrlKey: !!(previewShortcut.modifiers & 2),
+      altKey: !!(previewShortcut.modifiers & 1), shiftKey: !!(previewShortcut.modifiers & 4), metaKey: false
+    }]));
+  }
+  registerPreviewKey();
+  var preview = ProntoPreview.create(call, function (id, state) {
+    matches.forEach(function (item, i) {
+      var button = $('preview-' + i); if (!button) return;
+      var active = item.id === id && (state === 'playing' || state === 'loading');
+      button.textContent = active ? (state === 'loading' ? '…' : 'Ⅱ') : '▶';
+      button.setAttribute('aria-label', (active ? 'Pause ' : 'Preview ') + item.name);
+      button.setAttribute('aria-pressed', String(active));
+    });
+  }, function (message) { status(message, true); resize(); }, function () { return new Audio(); });
+  function togglePreview() {
+    if (busy || indexing || !data) return;
+    var item = matches[selected];
+    if (!item || item.kind !== 'Audio' || item.offline) return;
+    status('', false); resize(); preview.toggle(data.project, item);
+  }
   function resize() {
     var height = !$('status').hidden ? 160 : !$('query').value.trim() ? 58 : 90 + Math.min(Math.max(matches.length, 1), 7) * 52;
     if (height === lastHeight && Math.abs(window.innerHeight - height) < 3) return;
@@ -45,6 +70,17 @@
       detail.textContent = item.kind + (item.offline ? ' · OFFLINE' : '') + ' · ' + item.path;
       row.title = item.path;
       row.appendChild(icon); row.appendChild(title); row.appendChild(detail);
+      if (item.kind === 'Audio' && !item.offline) {
+        var button = document.createElement('button');
+        button.id = 'preview-' + i; button.className = 'preview-button'; button.type = 'button';
+        button.textContent = '▶'; button.title = 'Preview audio' + (previewShortcut ? ' (' + previewShortcut.label + ')' : '');
+        button.setAttribute('aria-label', 'Preview ' + item.name);
+        button.addEventListener('click', function (e) {
+          e.stopPropagation(); e.preventDefault(); if (busy || indexing || e.detail > 1) return;
+          select(i); $('query').focus(); togglePreview();
+        });
+        row.appendChild(button);
+      }
       row.addEventListener('click', function (e) {
         if (busy || e.detail > 1) return;
         select(i); $('query').focus(); if (e.shiftKey) openSource(); else insert();
@@ -56,17 +92,20 @@
     resize();
   }
   function select(next) {
+    if (next !== selected) preview.stop();
     var oldRow = $('result-' + selected); if (oldRow) oldRow.setAttribute('aria-selected', 'false');
     selected = next;
     var row = $('result-' + selected);
     if (row) { row.setAttribute('aria-selected', 'true'); $('query').setAttribute('aria-activedescendant', 'result-' + selected); }
   }
   function reset() {
+    preview.stop();
     if (busy) return;
     generation++; data = null; prepared = null; matches = []; selected = 0; indexing = false;
     $('query').value = ''; status('', false); setBusy(false); filter(); $('query').focus();
   }
   function filter() {
+    preview.stop();
     var query = $('query').value.trim();
     var all = query && data ? BinSearch.filter(data.items, query, prepared) : [];
     matches = all.slice(0, 100); selected = 0;
@@ -89,6 +128,7 @@
     }, 0);
   }
   function openSource() {
+    preview.stop();
     if (busy || indexing || !$('query').value.trim()) return;
     var item = matches[selected];
     if (!item || !data) return;
@@ -100,6 +140,7 @@
     });
   }
   function insert() {
+    preview.stop();
     if (busy || indexing || !$('query').value.trim()) return;
     var item = matches[selected];
     if (!item || !data || !data.sequence) { status('Select media and open a timeline, then press Ctrl+R to refresh.', true); resize(); return; }
@@ -115,6 +156,7 @@
   });
   $('query').addEventListener('keydown', function (e) {
     if (e.isComposing || e.keyCode === 229) return;
+    if (previewShortcut && BinSearchShortcut.matches(e, previewShortcut)) { e.preventDefault(); if (e.stopPropagation) e.stopPropagation(); if (!e.repeat) togglePreview(); return; }
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault(); select(Math.max(0, Math.min(matches.length - 1, selected + (e.key === 'ArrowDown' ? 1 : -1))));
       var row = $('result-' + selected); if (row) row.scrollIntoView({ block: 'nearest' });
@@ -130,7 +172,21 @@
   }
   if (window.__adobe_cep__ && window.__adobe_cep__.addEventListener) {
     window.__adobe_cep__.addEventListener('local.binsearch.open', reset);
+    window.__adobe_cep__.addEventListener('local.binsearch.previewToggle', function () { if (previewShortcut && previewShortcut.key === 32 && !document.hidden) togglePreview(); });
+    window.__adobe_cep__.addEventListener('local.binsearch.previewShortcut', function (event) {
+      try {
+        previewShortcut = event.data === 'disabled' ? null : BinSearchShortcut.preview(event.data);
+        registerPreviewKey();
+        matches.forEach(function (item, i) { var button = $('preview-' + i); if (button) button.title = 'Preview audio' + (previewShortcut ? ' (' + previewShortcut.label + ')' : ''); });
+      } catch (ignored) {}
+    });
+    if (window.__adobe_cep__.dispatchEvent) window.__adobe_cep__.dispatchEvent({type:'local.binsearch.getPreviewShortcut',scope:'APPLICATION',appId:'PPRO',extensionId:'local.binsearch.popup',data:''});
   }
   document.addEventListener('visibilitychange', function () { if (document.hidden) reset(); });
+  if (window.addEventListener) {
+    window.addEventListener('pagehide', function () { preview.stop(); });
+    window.addEventListener('beforeunload', function () { preview.stop(); });
+    window.addEventListener('blur', function () { preview.stop(); });
+  }
   $('query').focus(); filter();
 }());

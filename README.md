@@ -83,3 +83,5 @@ To uninstall, close Premiere and remove only local.binsearch.panel from the user
 
 
 Track targeting: PRONTO reads enabled video and audio track targets when you insert. It tries targeted tracks in numerical order, then untargeted tracks at or above the lowest target number. With no targets enabled for that media type, it starts at track 1. A destination must have room for the full clip (and all mapped audio tracks). If no eligible destination is free, insertion stops without editing. Existing track targets are not changed.
+
+Audio preview: click the play button on an online audio result or press Ctrl+Space to play/pause the highlighted result. Changing the query/selection, inserting, opening the Source Monitor, or dismissing/leaving PRONTO stops playback. Preview plays the original source file independently of Premiere, without applying Premiere effects/channel mapping or source In/Out points. Format support depends on CEP; use Shift+Enter for files it cannot play. The media path is fetched only on demand. No network playback or external decoder is used.

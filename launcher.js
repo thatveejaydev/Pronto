@@ -1,13 +1,13 @@
 (function () {
   'use strict';
-  var bridge = window.__adobe_cep__, helper = null, changing = false, recording = false, previousValue = '';
+  var bridge = window.__adobe_cep__, helper = null, changing = false, recording = false, previousValue = '', captureCallback = null;
   var field = document.getElementById('shortcut'), message = document.getElementById('shortcut-status');
   var storageKey = 'binsearch.shortcut.v1';
   function status(text) { message.textContent = text; }
   function open() {
     if (!bridge) return;
     // Reset a retained popup before showing it; a cold popup initializes itself.
-    if (bridge.dispatchEvent) bridge.dispatchEvent(JSON.stringify({ type: 'local.binsearch.open', scope: 'APPLICATION', appId: 'PPRO', extensionId: 'local.binsearch.popup', data: '' }));
+    if (bridge.dispatchEvent) bridge.dispatchEvent({ type: 'local.binsearch.open', scope: 'APPLICATION', appId: 'PPRO', extensionId: 'local.binsearch.panel', data: '' });
     bridge.requestOpenExtension('local.binsearch.popup', '');
   }
   document.getElementById('open').addEventListener('click', open);
@@ -16,7 +16,9 @@
     document.getElementById('save-shortcut').disabled = disabled;
     document.getElementById('disable-shortcut').disabled = disabled;
     document.getElementById('record-shortcut').disabled = disabled && !recording;
-    document.getElementById('record-shortcut').textContent = recording ? 'Cancel recording' : 'Record shortcut';
+    var saved;
+    try { saved = JSON.parse(localStorage.getItem(storageKey) || 'null'); } catch (ignored) {}
+    document.getElementById('record-shortcut').textContent = recording && !captureCallback ? 'Press keys…' : saved && saved.enabled ? saved.value : 'disabled';
     field.readOnly = recording;
   }
   function stop(done) {
@@ -37,6 +39,13 @@
         '-KeyCode', String(config.key), '-OwnerPid', String(node.process.pid)
       ];
       if (record) args.push('-Record');
+      else {
+        var previewValue = localStorage.getItem('pronto.previewShortcut.v1') || 'Ctrl+Space';
+        if (previewValue !== 'disabled') {
+          var previewConfig = BinSearchShortcut.preview(previewValue);
+          args.push('-PreviewModifiers', String(previewConfig.modifiers), '-PreviewKey', String(previewConfig.key));
+        }
+      }
       var child = node.require('child_process').spawn(executable, args, { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
       helper = child;
       var buffer = '', errors = '';
@@ -54,21 +63,27 @@
           }
           else if (line === 'CANCEL') finishRecording(null);
           else if (line === 'OPEN') open();
-          else if (line === 'STARTED') { controls(false); status(config.label + ' enabled. Activate Premiere to use it.'); }
+          else if (line === 'PREVIEW' && bridge.dispatchEvent) bridge.dispatchEvent({type:'local.binsearch.previewToggle',scope:'APPLICATION',appId:'PPRO',extensionId:'local.binsearch.panel',data:''});
+          else if (line === 'PREVIEW_CONFLICT') status('Audio preview shortcut is already registered by another app. Choose a different combination.');
+          else if (line === 'STARTED') { controls(false); status(config.key ? config.label + ' enabled. Activate Premiere to use it.' : ''); }
           else if (line === 'READY') status(config.label + ' ready in Premiere.');
           else if (line === 'CONFLICT') { controls(false); status('That shortcut is already registered by another app. Choose a different combination.'); }
         });
       });
       child.stderr.on('data', function (chunk) { errors = (errors + chunk).slice(-1500); });
-      child.on('error', function (e) { if (helper === child) { helper = null; recording = false; controls(false); status('Could not start shortcut: ' + e.message); } });
-      child.on('exit', function () { if (helper === child) { helper = null; recording = false; controls(false); status('Shortcut stopped. ' + (errors || 'Click Save to restart.')); } });
+      child.on('error', function (e) { if (helper === child) { helper = null; recording = false; if (captureCallback) { var failedCapture = captureCallback; captureCallback = null; failedCapture(null); } controls(false); status('Could not start shortcut: ' + e.message); } });
+      child.on('exit', function () { if (helper === child) { helper = null; recording = false; if (captureCallback) { var failedCapture = captureCallback; captureCallback = null; failedCapture(null); } controls(false); status('Shortcut stopped. ' + (errors || 'Click Save to restart.')); } });
       child.stdin.on('error', function () {});
-    } catch (e) { recording = false; controls(false); status(e.message); }
+    } catch (e) { recording = false; if (captureCallback) { var failedCapture = captureCallback; captureCallback = null; failedCapture(null); } controls(false); status(e.message); }
   }
   function apply() {
     if (changing) return;
     var config;
-    try { config = BinSearchShortcut.parse(field.value); }
+    try {
+      config = BinSearchShortcut.parse(field.value);
+      var previewValue = localStorage.getItem('pronto.previewShortcut.v1') || 'Ctrl+Space';
+      if (previewValue !== 'disabled' && config.label === BinSearchShortcut.parse(previewValue).label) throw Error('This shortcut is assigned to audio preview. Change one of the shortcuts first.');
+    }
     catch (e) { status(e.message); return; }
     field.value = config.label;
     localStorage.setItem(storageKey, JSON.stringify({ enabled: true, value: config.label }));
@@ -76,36 +91,51 @@
   }
   document.getElementById('save-shortcut').addEventListener('click', apply);
   function finishRecording(config) {
+    var callback = captureCallback; captureCallback = null;
     recording = false; controls(false);
+    if (callback) { callback(config); config = null; }
     if (config) { field.value = config.label; apply(); return; }
     field.value = previousValue;
     controls(true);
     stop(function () {
-      controls(false); status('Recording cancelled.');
+      controls(false); status(callback ? '' : 'Recording cancelled.');
       try {
         var saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
-        if (saved && saved.enabled) { controls(true); start(BinSearchShortcut.parse(saved.value)); }
+        controls(true); start(saved && saved.enabled ? BinSearchShortcut.parse(saved.value) : {modifiers:0,key:0,label:''});
       } catch (e) { controls(false); status(e.message); }
     });
   }
-  document.getElementById('record-shortcut').addEventListener('click', function () {
+  function beginCapture(callback) {
     if (recording) { finishRecording(null); return; }
     if (changing) return;
+    captureCallback = callback || null;
     previousValue = field.value; recording = true; controls(true);
     status('Preparing recorder… wait for Listening, then press your shortcut.');
     stop(function () { if (recording) start({ modifiers: 3, key: 66, label: '' }, true); });
-  });
+    return true;
+  }
+  window.ProntoRecordShortcut = beginCapture;
+  document.getElementById('record-shortcut').addEventListener('click', function () { beginCapture(null); });
+  document.getElementById('record-shortcut').addEventListener('contextmenu', function (e) { e.preventDefault(); document.getElementById('disable-shortcut').click(); });
   document.getElementById('disable-shortcut').addEventListener('click', function () {
     if (changing) return;
     localStorage.setItem(storageKey, JSON.stringify({ enabled: false, value: field.value }));
-    controls(true); stop(function () { controls(false); status('Shortcut disabled.'); });
+    controls(true); stop(function () { start({modifiers:0,key:0,label:''}); status('Opening shortcut disabled.'); });
   });
   field.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); apply(); } });
   window.addEventListener('beforeunload', function () { if (helper) helper.stdin.end(); });
+  controls(false);
+  window.ProntoRefreshShortcuts = function () {
+    if (changing || recording) return;
+    var saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
+    controls(true); stop(function () { start(saved && saved.enabled ? BinSearchShortcut.parse(saved.value) : {modifiers:0,key:0,label:''}); });
+  };
   // Keep the launcher running when switching to another panel in Premiere.
   if (bridge) bridge.evalScript('app.setExtensionPersistent("local.binsearch.panel", 1); app.setExtensionPersistent("local.binsearch.popup", 1)', function () {});
   try {
     var saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
-    if (saved) { field.value = saved.value; if (saved.enabled) apply(); }
+    if (saved) field.value = saved.value;
+    if (saved && saved.enabled) apply();
+    else start({modifiers:0,key:0,label:''});
   } catch (e) { status('Saved shortcut could not be read. Enter a new combination.'); }
 }());

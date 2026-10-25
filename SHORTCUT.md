@@ -17,3 +17,7 @@ Validation: JavaScript syntax and 9 shortcut parsing cases passed; the helper's 
 
 
 In search results, Shift+click or Shift+Enter opens the selected media or sequence in the Source Monitor and closes the search popup on success. No active timeline is required. Regular click or Enter places media on the timeline. Bins cannot open in the Source Monitor.
+
+Audio preview shortcut: in PRONTO Launcher, use Play / pause audio. Type a combination or press it in the field, then Save. Reset restores Ctrl+Space. The setting applies to the search popup and is saved between sessions. It must differ from the enabled Open PRONTO shortcut; Ctrl+F/Ctrl+R combinations remain reserved for search and refresh.
+
+Compact shortcut controls: click the shortcut value beside Open PRONTO or Audio preview, wait for Listening, then press and release your combination. It saves automatically. Esc cancels; right-click a value to disable it. This replaces the earlier Record/Save/Reset controls.

@@ -222,5 +222,19 @@ var BinSearchHost = (function () {
             return json({ ok: true, message: 'Opened ' + found.name + ' in the Source Monitor.' });
         } catch (e) { return json({ ok: false, error: String(e.message || e) }); }
     }
-    return { index: index, insert: insert, openSource: openSource };
+    function previewSource(projectID, nodeID) {
+        try {
+            var p = project(), found = null;
+            if (String(p.documentID) !== projectID) { throw new Error('Active project changed. Refresh the search.'); }
+            walk(p.rootItem, '', function (item) {
+                if (String(item.nodeId) === nodeID) { found = item; return false; }
+            });
+            if (!found) { throw new Error('Item was removed. Refresh the search.'); }
+            if (mediaKind(found) !== 'Audio' || (found.isOffline && found.isOffline())) { throw new Error('Choose an online audio file to preview.'); }
+            var path = found.getMediaPath();
+            if (!path) { throw new Error('This item has no audio file to preview. Use Shift+Enter for the Source Monitor.'); }
+            return json({ ok: true, path: String(path) });
+        } catch (e) { return json({ ok: false, error: String(e.message || e) }); }
+    }
+    return { index: index, insert: insert, openSource: openSource, previewSource: previewSource };
 }());

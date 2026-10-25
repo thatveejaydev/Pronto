@@ -1,8 +1,9 @@
-param([int]$Modifiers = 3, [int]$KeyCode = 66, [int]$OwnerPid = 0, [switch]$ValidateOnly, [switch]$Record)
+param([int]$Modifiers = 3, [int]$KeyCode = 66, [int]$OwnerPid = 0, [int]$PreviewModifiers = 0, [int]$PreviewKey = 0, [switch]$ValidateOnly, [switch]$Record)
 $ErrorActionPreference = 'Stop'
 Add-Type -TypeDefinition @'
 using System;
 using System.Diagnostics;
+using System.Text;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Collections.Generic;
@@ -47,17 +48,28 @@ public static class BinSearchHotkey {
     [DllImport("user32.dll")] static extern uint MsgWaitForMultipleObjectsEx(uint count, IntPtr handles, uint milliseconds, uint wakeMask, uint flags);
     [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
-    static bool PremiereActive() {
-        uint id; GetWindowThreadProcessId(GetForegroundWindow(), out id);
-        try { return Process.GetProcessById((int)id).ProcessName.Equals("Adobe Premiere Pro", StringComparison.OrdinalIgnoreCase); }
+    [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr window, uint flags);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowText(IntPtr window, StringBuilder text, int count);
+    static bool IsPremiereWindow(IntPtr window) {
+        uint id; GetWindowThreadProcessId(window, out id);
+        try { using (var process = Process.GetProcessById((int)id)) return process.ProcessName.Equals("Adobe Premiere Pro", StringComparison.OrdinalIgnoreCase); }
         catch { return false; }
     }
+    static bool PremiereActive() {
+        IntPtr window = GetForegroundWindow();
+        return IsPremiereWindow(window) || IsPremiereWindow(GetAncestor(window, 3));
+    }
+    static bool PreviewActive() {
+        if (!PremiereActive()) return false;
+        var title = new StringBuilder(256); GetWindowText(GetForegroundWindow(), title, title.Capacity);
+        return title.ToString().Equals("PRONTO", StringComparison.OrdinalIgnoreCase);
+    }
     static void Say(string value) { Console.WriteLine(value); Console.Out.Flush(); }
-    public static void Run(int modifiers, int key, int owner) {
-        if (modifiers < 1 || modifiers > 7 || (modifiers & 3) == 0 ||
-            !SupportedKey(key))
+    public static void Run(int modifiers, int key, int owner, int previewModifiers, int previewKey) {
+        if (key != 0 && (modifiers < 1 || modifiers > 7 || (modifiers & 3) == 0 ||
+            !SupportedKey(key)))
             throw new ArgumentException("Use Ctrl or Alt with a letter, number, Space, or F1-F11.");
-        bool registered = false, conflict = false;
+        bool registered = false, conflict = false, previewRegistered = false, previewConflict = false;
         // Closing the CEP pipe or owner process stops this helper without leaving a resident service.
         bool stopped = false;
         var reader = new Thread(() => { try { while (Console.ReadLine() != null) {} } catch {} Volatile.Write(ref stopped, true); });
@@ -66,7 +78,7 @@ public static class BinSearchHotkey {
         try {
             while (!Volatile.Read(ref stopped)) {
                 try { if (Process.GetProcessById(owner).HasExited) break; } catch { break; }
-                bool active = PremiereActive();
+                bool active = key != 0 && PremiereActive();
                 if (active && !registered) {
                     registered = RegisterHotKey(IntPtr.Zero, 1, (uint)modifiers | 0x4000, (uint)key);
                     if (registered) { conflict = false; Say("READY"); }
@@ -74,14 +86,25 @@ public static class BinSearchHotkey {
                 } else if (!active && registered) {
                     UnregisterHotKey(IntPtr.Zero, 1); registered = false;
                 }
+                bool previewActive = previewKey == 32 && previewModifiers > 0 && PreviewActive();
+                if (previewActive && !previewRegistered) {
+                    previewRegistered = RegisterHotKey(IntPtr.Zero, 2, (uint)previewModifiers | 0x4000, (uint)previewKey);
+                    if (previewRegistered) previewConflict = false;
+                    else if (!previewConflict) { previewConflict = true; Say("PREVIEW_CONFLICT"); }
+                } else if (!previewActive && previewRegistered) {
+                    UnregisterHotKey(IntPtr.Zero, 2); previewRegistered = false;
+                }
                 MSG msg;
                 while (PeekMessage(out msg, IntPtr.Zero, 0, 0, 1)) {
-                    if (msg.message == 0x0312 && PremiereActive()) Say("OPEN");
+                    if (msg.message == 0x0312) {
+                        if (msg.wParam.ToUInt64() == 1 && PremiereActive()) Say("OPEN");
+                        else if (msg.wParam.ToUInt64() == 2 && PreviewActive()) Say("PREVIEW");
+                    }
                 }
                 // Wake immediately for WM_HOTKEY; timeout only rechecks foreground/owner.
                 MsgWaitForMultipleObjectsEx(0, IntPtr.Zero, 75, 0x04FF, 0x0004);
             }
-        } finally { if (registered) UnregisterHotKey(IntPtr.Zero, 1); }
+        } finally { if (registered) UnregisterHotKey(IntPtr.Zero, 1); if (previewRegistered) UnregisterHotKey(IntPtr.Zero, 2); }
     }
     public static void Record(int owner) {
         var capture = new ShortcutCapture();
@@ -118,4 +141,4 @@ public static class BinSearchHotkey {
 '@
 if ($ValidateOnly) { Write-Output 'Shortcut helper compiled successfully.'; exit 0 }
 if ($Record) { [BinSearchHotkey]::Record($OwnerPid) }
-else { [BinSearchHotkey]::Run($Modifiers, $KeyCode, $OwnerPid) }
+else { [BinSearchHotkey]::Run($Modifiers, $KeyCode, $OwnerPid, $PreviewModifiers, $PreviewKey) }

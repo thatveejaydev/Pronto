@@ -11,7 +11,7 @@ if (Test-Path -LiteralPath $destination) {
     Write-Host "Previous installation backed up to $backup"
 }
 New-Item -ItemType Directory -Path $destination -Force | Out-Null
-foreach ($name in @('CSXS', 'icons', 'index.html', 'style.css', 'search.js', 'panel.js', 'host.jsx', 'launcher.html', 'launcher.js', 'shortcut.js', 'hotkey.ps1')) {
+foreach ($name in @('CSXS', 'icons', 'index.html', 'style.css', 'search.js', 'preview.js', 'panel.js', 'host.jsx', 'launcher.html', 'launcher.js', 'preview-settings.js', 'shortcut.js', 'hotkey.ps1')) {
     if ($name -eq 'CSXS') {
         New-Item -ItemType Directory -Path (Join-Path $destination 'CSXS') -Force | Out-Null
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'CSXS\manifest.xml') -Destination (Join-Path $destination 'CSXS\manifest.xml') -Force

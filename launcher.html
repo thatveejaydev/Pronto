@@ -1,13 +1,13 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PRONTO Launcher</title><link rel="stylesheet" href="style.css"></head>
 <body class="launcher">
-<header class="launcher-title"><h1>PRONTO</h1></header>
 <button id="open" class="open-search">Search project</button>
-<section class="shortcut-section" aria-label="Keyboard shortcut">
-<label for="shortcut">Shortcut</label>
-<div class="shortcut-entry"><input id="shortcut" value="Alt+Space" spellcheck="false" aria-label="Opening shortcut"><button id="record-shortcut">Record shortcut</button></div>
-<div class="actions"><button id="save-shortcut" class="primary">Save</button><button id="disable-shortcut" class="quiet">Disable</button></div>
-</section>
-<p id="shortcut-status" class="shortcut-status" role="status" aria-live="polite">Shortcut works while Premiere is active.</p>
-<details class="help"><summary>Help</summary><p>Record a shortcut to save it automatically, or type one and click Save.</p><p>Use Ctrl or Alt with a letter, number, Space, or F1–F11. Shift is optional.</p><p>Open this launcher once per Premiere session to enable your shortcut.</p></details>
-<script src="shortcut.js"></script><script src="launcher.js"></script></body></html>
+<fieldset class="shortcut-box"><legend>Shortcuts</legend>
+<div class="shortcut-row"><label for="record-shortcut">Open PRONTO:</label><button id="record-shortcut" class="shortcut-value" title="Click to record. Right-click to disable.">disabled</button></div>
+<div class="shortcut-row"><label for="record-preview-shortcut">Audio preview:</label><button id="record-preview-shortcut" class="shortcut-value" title="Click to record. Right-click to disable.">Ctrl+Space</button></div>
+</fieldset>
+<p id="shortcut-status" class="shortcut-status" role="status" aria-live="polite"></p>
+<p id="preview-shortcut-status" class="shortcut-status" role="status" aria-live="polite"></p>
+<p class="hint">Click a shortcut and press your keys. Esc cancels. Right-click to disable.</p>
+<div hidden><input id="shortcut" value="Alt+Space"><button id="save-shortcut"></button><button id="disable-shortcut"></button></div>
+<script src="shortcut.js"></script><script src="launcher.js"></script><script src="preview-settings.js"></script></body></html>
