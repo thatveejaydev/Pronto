@@ -1,0 +1,72 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<ExtensionManifest Version="7.0" ExtensionBundleId="local.binsearch" ExtensionBundleVersion="0.2.0" ExtensionBundleName="PRONTO">
+  <ExtensionList>
+    <Extension Id="local.binsearch.panel" Version="0.2.0" />
+    <Extension Id="local.binsearch.popup" Version="0.2.0" />
+  </ExtensionList>
+  <ExecutionEnvironment>
+    <HostList>
+      <Host Name="PPRO" Version="[26.0,26.9]" />
+    </HostList>
+    <LocaleList>
+      <Locale Code="All" />
+    </LocaleList>
+    <RequiredRuntimeList>
+      <RequiredRuntime Name="CSXS" Version="12.0" />
+    </RequiredRuntimeList>
+  </ExecutionEnvironment>
+  <DispatchInfoList>
+    <Extension Id="local.binsearch.panel">
+      <DispatchInfo>
+        <Resources>
+          <MainPath>./launcher.html</MainPath>
+          <CEFCommandLine>
+            <Parameter>--enable-nodejs</Parameter>
+          </CEFCommandLine>
+        </Resources>
+        <Lifecycle>
+          <AutoVisible>true</AutoVisible>
+        </Lifecycle>
+        <UI>
+          <Type>Panel</Type>
+          <Menu>PRONTO Launcher</Menu>
+          <Geometry>
+            <Size>
+              <Width>320</Width>
+              <Height>400</Height>
+            </Size>
+          </Geometry>
+        </UI>
+      </DispatchInfo>
+    </Extension>
+    <Extension Id="local.binsearch.popup">
+      <DispatchInfo>
+        <Resources>
+          <MainPath>./index.html</MainPath>
+          <ScriptPath>./host.jsx</ScriptPath>
+        </Resources>
+        <Lifecycle>
+          <AutoVisible>true</AutoVisible>
+        </Lifecycle>
+        <UI>
+          <Type>Modeless</Type>
+          <Menu>PRONTO</Menu>
+          <Geometry>
+            <Size>
+              <Width>420</Width>
+              <Height>58</Height>
+            </Size>
+            <MinSize>
+              <Width>320</Width>
+              <Height>58</Height>
+            </MinSize>
+            <MaxSize>
+              <Width>1000</Width>
+              <Height>800</Height>
+            </MaxSize>
+          </Geometry>
+        </UI>
+      </DispatchInfo>
+    </Extension>
+  </DispatchInfoList>
+</ExtensionManifest>
