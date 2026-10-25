@@ -201,4 +201,72 @@ test('Late index response cannot repopulate a dismissed popup', () => {
   f.key('Escape'); f.pending.shift()();
   assert.equal(f.elements.query.value,''); assert.equal(f.elements.results.hidden,true);
 });
+test('Property-based stereo mapping selects A1 even when A2 is occupied', () => {
+  const f=fixture(); f.media.getAudioChannelMapping={audioClipsNumber:1};
+  f.seq.audioTracks=tracks([track(),track([[10,20]]),track()]);
+  assert.equal(insert(f).audio,0);
+});
+test('Property-based multichannel mapping still reserves its full track width', () => {
+  const f=fixture(); f.media.getAudioChannelMapping={audioClipsNumber:2};
+  f.seq.audioTracks=tracks([track(),track([[10,20]]),track(),track()]);
+  assert.equal(insert(f).audio,2);
+});
+function audioFixture() {
+  const f=fixture(); f.media.getMediaPath=()=> 'C:/media/sound.wav';
+  f.media.getAudioChannelMapping={audioClipsNumber:1};
+  f.seq.videoTracks=tracks([track([[0,100]])]);
+  f.seq.overwriteClip=(item,time,video,audio)=>{
+    f.calls.push([item,time,video,audio]);
+    const clips=f.seq.audioTracks[audio].clips;
+    clips.push({nodeId:'added-audio',projectItem:item,start:{seconds:time.seconds},end:{seconds:time.seconds+5}});
+    clips.numItems=clips.length;
+    return true;
+  };
+  return f;
+}
+test('Audio-only insertion ignores occupied video and unrelated higher audio tracks', () => {
+  const f=audioFixture(); f.seq.audioTracks=tracks([track(),track([[10,20]])]);
+  const result=insert(f); assert.equal(result.ok,true); assert.equal(result.audio,0); assert.equal(result.video,-1);
+  assert.equal(f.seq.videoTracks[0].clips.length,1);
+});
+test('Audio-only insertion chooses the first gap fitting the entire clip', () => {
+  const f=audioFixture(); f.seq.audioTracks=tracks([track([[12,20]]),track([[0,10],[15,20]]),track()]);
+  assert.equal(insert(f).audio,1);
+});
+function target(t) { t.isTargeted=()=>true; return t; }
+test('Enabled audio target wins over an empty A1',()=>{
+ const f=audioFixture(); f.seq.audioTracks=tracks([track(),target(track()),track()]);
+ assert.equal(insert(f).audio,1);
+});
+test('Occupied target falls forward to the next available audio track',()=>{
+ const f=audioFixture(); f.seq.audioTracks=tracks([track(),target(track([[10,20]])),track()]);
+ assert.equal(insert(f).audio,2);
+});
+test('Multiple enabled targets take priority over untargeted tracks',()=>{
+ const f=audioFixture(); f.seq.audioTracks=tracks([track(),target(track([[10,20]])),track(),target(track())]);
+ assert.equal(insert(f).audio,3);
+});
+test('With no targets, selection starts at A1',()=>{
+ const f=audioFixture(); f.seq.audioTracks=tracks([track(),track()]);
+ f.seq.audioTracks.forEach(t=>t.isTargeted=()=>false);
+ assert.equal(insert(f).audio,0);
+});
+test('Video and audio targets are selected independently',()=>{
+ const f=fixture(); f.seq.videoTracks=tracks([track(),target(track())]);
+ f.seq.audioTracks=tracks([track(),track(),target(track())]);
+ const result=insert(f); assert.equal(result.video,1); assert.equal(result.audio,2);
+});
+test('Targeting does not bypass full-duration collision checks',()=>{
+ const f=audioFixture(); f.seq.audioTracks=tracks([target(track([[12,20]])),track()]);
+ assert.equal(insert(f).audio,1);
+});
+test('No free track after target fails without editing earlier tracks',()=>{
+ const f=audioFixture(); f.seq.audioTracks=tracks([track(),target(track([[10,20]]))]);
+ assert.equal(insert(f).ok,false); assert.equal(f.calls.length,0);
+});
+test('Multichannel target fallback checks the complete destination span',()=>{
+ const f=fixture(); f.media.getAudioChannelMapping={audioClipsNumber:2};
+ f.seq.audioTracks=tracks([track(),target(track()),track([[10,20]]),track(),track()]);
+ assert.equal(insert(f).audio,3);
+});
 console.log(`${passed} tests passed. These are mock-host tests, not Premiere integration tests.`);

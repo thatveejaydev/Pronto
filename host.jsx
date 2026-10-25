@@ -101,11 +101,23 @@ var BinSearchHost = (function () {
         return true;
     }
     function firstFree(tracks, width, start, end) {
-        var i, j, count, available;
+        var i, j, count, available, candidates = [], targeted = {}, first = -1, c;
+        // Prefer enabled targets, in track-number order, then later unselected tracks.
+        // Read targeting at insertion time, so changes made while searching take effect.
         for (i = 0; i < tracks.numTracks; i++) {
+            if (tracks[i].isTargeted && tracks[i].isTargeted()) {
+                if (first < 0) { first = i; }
+                targeted[i] = true; candidates.push(i);
+            }
+        }
+        for (i = first < 0 ? 0 : first; i < tracks.numTracks; i++) {
+            if (!targeted[i]) { candidates.push(i); }
+        }
+        for (c = 0; c < candidates.length; c++) {
+            i = candidates[c];
             // Unknown audio mapping: reserve all existing tracks at and above this index.
             count = width === null ? tracks.numTracks - i : width;
-            if (i + count > tracks.numTracks) { break; }
+            if (i + count > tracks.numTracks) { continue; }
             available = true;
             for (j = i; j < i + count; j++) {
                 if (!clear(tracks[j], start, end)) { available = false; break; }
@@ -169,20 +181,24 @@ var BinSearchHost = (function () {
             var start = Number(time.seconds), end = start + duration(found, s), width = null, mapping;
             if (!isFinite(start) || start < 0) { throw new Error('Cannot read the playhead position.'); }
             try {
-                mapping = found.getAudioChannelMapping();
+                // Adobe exposes this as a property; tolerate callable host variants too.
+                mapping = found.getAudioChannelMapping;
+                if (typeof mapping === 'function') { mapping = found.getAudioChannelMapping(); }
                 if (mapping && typeof mapping.audioClipsNumber === 'number' && mapping.audioClipsNumber >= 0 && mapping.audioClipsNumber === Math.floor(mapping.audioClipsNumber)) {
                     width = Math.max(1, mapping.audioClipsNumber);
                 }
             } catch (ignored) {}
-            var video = firstFree(s.videoTracks, 1, start, end);
+            var audioOnly = mediaKind(found) === 'Audio';
+            var video = audioOnly ? -1 : firstFree(s.videoTracks, 1, start, end);
             var audio = firstFree(s.audioTracks, width, start, end);
-            if (video < 0 || audio < 0) { throw new Error('No free track space for the full clip. Add an empty video/audio track and retry. Nothing was changed.'); }
+            if ((!audioOnly && video < 0) || audio < 0) { throw new Error('No free track space for the full clip. Add an empty ' + (audioOnly ? 'audio' : 'video/audio') + ' track and retry. Nothing was changed.'); }
             // Sequence methods accept the native Time object. Avoid ambiguous string coercion.
             var before = timelineItems(s);
-            s.overwriteClip(found, time, video, audio);
+            // Audio-only sources create no video; pass a valid placeholder video index.
+            s.overwriteClip(found, time, audioOnly ? 0 : video, audio);
             verifyPlacement(before, timelineItems(s), String(found.nodeId), start, video, audio, width,
                 Number(s.timebase) / 254016000000 / 2);
-            return json({ ok: true, message: 'Placed ' + found.name + ' on V' + (video + 1) + '/A' + (audio + 1) + '.', video: video, audio: audio });
+            return json({ ok: true, message: 'Placed ' + found.name + ' on ' + (audioOnly ? '' : 'V' + (video + 1) + '/') + 'A' + (audio + 1) + '.', video: video, audio: audio });
         } catch (e) { return json({ ok: false, error: String(e.message || e) }); }
     }
     function openSource(projectID, nodeID) {

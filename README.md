@@ -81,3 +81,5 @@ If the launcher is missing, check the installation folder nesting and CSXS.12 pr
 
 To uninstall, close Premiere and remove only local.binsearch.panel from the user CEP extensions folder. Restore the prior PlayerDebugMode value only if other development extensions do not rely on it. To roll back, restore the corresponding backed-up folder to that location with Premiere closed.
 
+
+Track targeting: PRONTO reads enabled video and audio track targets when you insert. It tries targeted tracks in numerical order, then untargeted tracks at or above the lowest target number. With no targets enabled for that media type, it starts at track 1. A destination must have room for the full clip (and all mapped audio tracks). If no eligible destination is free, insertion stops without editing. Existing track targets are not changed.
