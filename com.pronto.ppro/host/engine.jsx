@@ -331,13 +331,28 @@ var ProntoHost = (function () {
         return -1;
     }
 
-    function captureTimelineSnapshot(sequence) {
-        var snap = [], groups = [sequence.videoTracks, sequence.audioTracks], g, t, c, clip;
+    function isTargetTrack(group, trackIndex, videoTrack, audioTrack, audioWidth) {
+        if (group === 0) {
+            return videoTrack >= 0 && trackIndex === videoTrack;
+        }
+        if (audioTrack < 0 || trackIndex < audioTrack) {
+            return false;
+        }
+        return audioWidth === null || trackIndex < audioTrack + audioWidth;
+    }
+
+    function captureTimelineSnapshot(sequence, videoTrack, audioTrack, audioWidth) {
+        var clips = [], trackCounts = {}, groups = [sequence.videoTracks, sequence.audioTracks], g, t, c, trackClips, clip;
         for (g = 0; g < groups.length; g++) {
             for (t = 0; t < groups[g].numTracks; t++) {
-                for (c = 0; c < groups[g][t].clips.numItems; c++) {
-                    clip = groups[g][t].clips[c];
-                    snap.push({
+                trackClips = groups[g][t].clips;
+                if (!isTargetTrack(g, t, videoTrack, audioTrack, audioWidth)) {
+                    trackCounts[g + ':' + t] = trackClips ? trackClips.numItems : 0;
+                    continue;
+                }
+                for (c = 0; c < trackClips.numItems; c++) {
+                    clip = trackClips[c];
+                    clips.push({
                         id: String(clip.nodeId),
                         sourceId: clip.projectItem ? String(clip.projectItem.nodeId) : '',
                         group: g,
@@ -348,16 +363,23 @@ var ProntoHost = (function () {
                 }
             }
         }
-        return snap;
+        return { clips: clips, trackCounts: trackCounts };
     }
 
     function auditTimelineEdit(beforeSnap, afterSnap, itemNodeId, expectedStart, videoTrack, audioTrack, audioWidth, toleranceSec) {
-        var existingById = {}, afterById = {}, i, item, addedCount = 0, misplacedCount = 0;
-        for (i = 0; i < beforeSnap.length; i++) {
-            existingById['k_' + beforeSnap[i].id] = beforeSnap[i];
+        var existingById = {}, afterById = {}, beforeClips = beforeSnap.clips, afterClips = afterSnap.clips, key, i, item, addedCount = 0, misplacedCount = 0;
+        for (key in beforeSnap.trackCounts) {
+            if (beforeSnap.trackCounts.hasOwnProperty(key)) {
+                if (afterSnap.trackCounts[key] !== beforeSnap.trackCounts[key]) {
+                    misplacedCount++;
+                }
+            }
         }
-        for (i = 0; i < afterSnap.length; i++) {
-            item = afterSnap[i];
+        for (i = 0; i < beforeClips.length; i++) {
+            existingById['k_' + beforeClips[i].id] = beforeClips[i];
+        }
+        for (i = 0; i < afterClips.length; i++) {
+            item = afterClips[i];
             afterById['k_' + item.id] = item;
             if (existingById['k_' + item.id]) { continue; }
             addedCount++;
@@ -375,8 +397,8 @@ var ProntoHost = (function () {
         if (misplacedCount > 0) {
             throw new Error('Premiere placed the clip on unexpected tracks or timecode. Use Undo (Ctrl+Z) and inspect the timeline.');
         }
-        for (i = 0; i < beforeSnap.length; i++) {
-            var prev = beforeSnap[i];
+        for (i = 0; i < beforeClips.length; i++) {
+            var prev = beforeClips[i];
             var curr = afterById['k_' + prev.id];
             if (!curr || curr.start !== prev.start || curr.end !== prev.end || curr.track !== prev.track || curr.group !== prev.group) {
                 throw new Error('An existing timeline clip was modified during placement. Use Undo (Ctrl+Z) and inspect the timeline.');
@@ -501,10 +523,10 @@ var ProntoHost = (function () {
                 throw new Error('No free track space for the full clip duration. Add an empty ' + neededKind + ' track and retry.');
             }
 
-            var beforeSnap = captureTimelineSnapshot(seq);
+            var beforeSnap = captureTimelineSnapshot(seq, vTrack, aTrack, streams.audioWidth);
             seq.overwriteClip(targetItem, playhead, streams.needsVideo ? vTrack : 0, streams.needsAudio ? aTrack : 0);
             var halfFrameTolerance = (Number(seq.timebase) / TICKS_PER_SECOND) / 2;
-            auditTimelineEdit(beforeSnap, captureTimelineSnapshot(seq), String(targetItem.nodeId), startSec, vTrack, aTrack, streams.audioWidth, halfFrameTolerance);
+            auditTimelineEdit(beforeSnap, captureTimelineSnapshot(seq, vTrack, aTrack, streams.audioWidth), String(targetItem.nodeId), startSec, vTrack, aTrack, streams.audioWidth, halfFrameTolerance);
 
             var trackSummary = (streams.needsVideo ? ('V' + (vTrack + 1)) : '') +
                                (streams.needsAudio ? ((streams.needsVideo ? '/' : '') + 'A' + (aTrack + 1)) : '');

@@ -354,6 +354,7 @@ function buildPaletteUI() {
         addEventListener() {}
     };
 
+    const registeredIntervals = [];
     const uiCtx = vm.createContext({
         document,
         Date: { now: () => 1000 },
@@ -368,7 +369,7 @@ function buildPaletteUI() {
         setTimeout: fn => fn(),
         window: {
             innerHeight: 60,
-            setInterval() {},
+            setInterval: (fn, ms) => { registeredIntervals.push({ fn, ms }); },
             addEventListener() {},
             __adobe_cep__: {
                 registerKeyEventsInterest() {},
@@ -386,26 +387,36 @@ function buildPaletteUI() {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../client/palette.js'), 'utf8'), uiCtx);
     pendingBridge.shift()();
 
-    return { env, domNodes, pendingBridge, cepListeners, storage, audioInstances };
+    return { env, domNodes, pendingBridge, cepListeners, storage, audioInstances, registeredIntervals };
 }
 
-check('Palette renders label color dots, filter pills, and queues Enter if pressed during reopen ping', () => {
+check('Palette renders label color dots, filter pills, and immediately closes window on Enter before host finishes', () => {
     const ui = buildPaletteUI();
     ui.domNodes.query.value = 'B-Roll';
     ui.domNodes.query.listeners.input();
     assert.equal(ui.domNodes.results.children.length, 1);
 
+    // Pressing Enter immediately closes the floating window while host placement is still in flight
+    ui.domNodes.query.listeners.keydown({ key: 'Enter', preventDefault() {} });
+    assert.equal(ui.env.closed, true);
+    assert.equal(ui.env.edits.length, 0);
+    assert.equal(ui.pendingBridge.length, 1);
+    ui.pendingBridge.shift()();
+    assert.equal(ui.env.edits.length, 1);
+
+    ui.env.closed = false;
+    ui.env.activeSeq.getPlayerPosition = () => ({ ticks: '5080320000000', seconds: 20 });
     ui.cepListeners['com.pronto.ppro.open']();
     assert.equal(ui.pendingBridge.length, 1);
     ui.domNodes.query.value = 'B-Roll';
     ui.domNodes.query.listeners.input();
     ui.domNodes.query.listeners.keydown({ key: 'Enter', preventDefault() {} });
+    assert.equal(ui.env.closed, true);
 
     ui.pendingBridge.shift()();
     assert.equal(ui.pendingBridge.length, 1);
     ui.pendingBridge.shift()();
-    assert.equal(ui.env.edits.length, 1);
-    assert.equal(ui.env.closed, true);
+    assert.equal(ui.env.edits.length, 2);
 
     ui.cepListeners['com.pronto.ppro.open']();
     ui.pendingBridge.shift()();
@@ -440,6 +451,39 @@ check('Launcher Auto-Preview works when typing a search query, arrowing, and rec
     ui.pendingBridge.shift()();
     assert.equal(ui.audioInstances.length, 2);
     assert.equal(ui.audioInstances[1].paused, false);
+});
+
+check('Timeline placement check only inspects clips on destination tracks, skipping non-destination tracks', () => {
+    const env = buildHostEnv();
+    let nonTargetClipReads = 0;
+    const heavyTrack = {
+        isTargeted: () => false,
+        clips: Object.assign([
+            {
+                get nodeId() { nonTargetClipReads++; return 'heavy-1'; },
+                projectItem: { nodeId: 'other' },
+                start: { seconds: 0 },
+                end: { seconds: 5 }
+            }
+        ], { numItems: 1 }),
+        transitions: Object.assign([], { numItems: 0 })
+    };
+    const destVideoTrack = env.makeTrack([], [], true);
+    const destAudioTrack = env.makeTrack([], [], true);
+    env.activeSeq.videoTracks = Object.assign([heavyTrack, destVideoTrack], { numTracks: 2 });
+    env.activeSeq.audioTracks = Object.assign([heavyTrack, destAudioTrack], { numTracks: 2 });
+    env.clipItem.getAudioChannelMapping = () => ({ audioClipsNumber: 1 });
+
+    const res = JSON.parse(env.host.placeItem('doc-1', 'seq-main', 'node-clip'));
+    assert.equal(res.ok, true);
+    assert.equal(res.video, 1);
+    assert.equal(res.audio, 1);
+    assert.equal(nonTargetClipReads, 0);
+});
+
+check('Palette registers no background setInterval timer to prevent dropped frames during playback', () => {
+    const ui = buildPaletteUI();
+    assert.equal(ui.registeredIntervals.length, 0);
 });
 
 console.log('\nAll ' + totalPassed + ' PRONTO test suites passed!');

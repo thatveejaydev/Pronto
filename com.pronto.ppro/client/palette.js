@@ -511,43 +511,35 @@
         }
     }
 
+    function openTargetItem(target, mode) {
+        if (!target || !catalogData) { return; }
+        var projId = catalogData.project;
+        var targetId = target.id;
+        recordRecentItem(projId, targetId);
+        invokeHost('openItem', [projId, targetId, mode || 'default'], function () {});
+        dismissPalette();
+    }
+
     function executeOpen(mode) {
         audioPlayer.stop();
         if (isActionBusy || !isExpandedState()) { return; }
+        var target = visibleMatches[activeIndex];
+        if (!target) { return; }
         if (isPinging) {
-            queuedAction = function () { executeOpen(mode); };
+            dismissPalette();
+            queuedAction = function () { openTargetItem(target, mode); };
             return;
         }
-        var target = visibleMatches[activeIndex];
-        if (!target || !catalogData) { return; }
-        setBusyFlag(true);
-        showStatus('', false);
-        invokeHost('openItem', [catalogData.project, target.id, mode || 'default'], function (err) {
-            setBusyFlag(false);
-            if (err) {
-                showStatus(err.message, true);
-                adjustWindowSize();
-                byId('query').focus();
-            } else {
-                recordRecentItem(catalogData.project, target.id);
-                dismissPalette();
-            }
-        });
+        openTargetItem(target, mode);
     }
 
-    function executePlace() {
-        audioPlayer.stop();
-        if (isActionBusy || !isExpandedState()) { return; }
-        if (isPinging) {
-            queuedAction = executePlace;
+    function placeTargetItem(target) {
+        if (!target || !catalogData) { return; }
+        if (target.kind === 'Bin') {
+            openTargetItem(target, 'reveal');
             return;
         }
-        var target = visibleMatches[activeIndex];
-        if (target && catalogData && target.kind === 'Bin') {
-            executeOpen('reveal');
-            return;
-        }
-        if (!target || !catalogData || !catalogData.sequence) {
+        if (!catalogData.sequence) {
             showStatus('Select an item and open a timeline sequence, then press Ctrl+R to refresh.', true);
             adjustWindowSize();
             return;
@@ -557,18 +549,25 @@
             adjustWindowSize();
             return;
         }
-        setBusyFlag(true);
-        showStatus('Placing…', false);
-        invokeHost('placeItem', [catalogData.project, catalogData.sequence.id, target.id], function (err, res) {
-            setBusyFlag(false);
-            showStatus(err ? err.message : res.message, !!err);
-            adjustWindowSize();
-            byId('query').focus();
-            if (!err) {
-                recordRecentItem(catalogData.project, target.id);
-                dismissPalette();
-            }
-        });
+        var projId = catalogData.project;
+        var seqId = catalogData.sequence.id;
+        var targetId = target.id;
+        recordRecentItem(projId, targetId);
+        invokeHost('placeItem', [projId, seqId, targetId], function () {});
+        dismissPalette();
+    }
+
+    function executePlace() {
+        audioPlayer.stop();
+        if (isActionBusy || !isExpandedState()) { return; }
+        var target = visibleMatches[activeIndex];
+        if (!target) { return; }
+        if (isPinging) {
+            dismissPalette();
+            queuedAction = function () { placeTargetItem(target); };
+            return;
+        }
+        placeTargetItem(target);
     }
 
     // Bind UI events
@@ -714,7 +713,7 @@
         window.addEventListener('pagehide', function () { audioPlayer.stop(); });
         window.addEventListener('beforeunload', function () { audioPlayer.stop(); });
         window.addEventListener('blur', function () { audioPlayer.stop(); });
-        window.addEventListener('focus', function () { isAutoPreviewActive(); });
+        window.addEventListener('focus', function () { isAutoPreviewActive(); verifyHostContext(); });
         window.addEventListener('storage', function (ev) {
             if (!ev || ev.key === AUTO_PREVIEW_KEY) {
                 isAutoPreviewActive();
@@ -725,7 +724,4 @@
     byId('query').focus();
     runFilter(false);
     scanCatalog(true);
-    if (window.setInterval) {
-        window.setInterval(verifyHostContext, 30000);
-    }
 }());
