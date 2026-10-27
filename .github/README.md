@@ -9,12 +9,14 @@ Built for **Premiere Pro 2026 on Windows**. PRONTO is currently a working protot
 ## What you can do
 
 - **Search across your project.** Find items inside bins and nested bins by their name or location. You don't need to type the full name.
+- **Reopen searches faster.** PRONTO remembers the current project’s media list while Premiere stays open and refreshes it in the background.
 - **Keep your workspace clean.** The compact window starts with just a search field. Results appear as you type, with icons for different media types.
 - **Add media quickly.** Click a result or press Enter to place it at the playhead.
 - **Use your track targets.** PRONTO tries enabled video and audio targets first. If they don't have enough room for the full clip, it looks for another available track.
 - **Avoid overlapping clips.** Placement checks the space needed by the entire clip, including its audio tracks. If there isn't enough room, PRONTO stops and tells you.
 - **Preview sounds.** Use the play button beside an audio result or your preview shortcut to play and pause it before adding it.
-- **Open items in the Source Monitor.** Shift+click or Shift+Enter opens the selected item for a closer look.
+- **Open media or sequences.** Shift+click or Shift+Enter opens media in the Source Monitor, or switches to a sequence in the timeline.
+- **Add sequences.** Click a sequence or press Enter to place it as a nested clip at the playhead, using the same track-space checks as media.
 - **Choose your shortcuts.** Set separate shortcuts for opening PRONTO and playing audio previews.
 
 ## Install on Windows
@@ -63,7 +65,7 @@ Open the launcher once each time you start Premiere to enable the shortcuts. You
 | --- | --- |
 | Move through results | Up / Down |
 | Add the selected media at the playhead | Enter or click the result |
-| Open in the Source Monitor | Shift+Enter or Shift+click |
+| Open media in the Source Monitor, or open a sequence timeline | Shift+Enter or Shift+click |
 | Play / pause audio preview | Play button or your preview shortcut |
 | Refresh search results | Ctrl+R |
 | Focus the search field | Ctrl+F |
@@ -74,6 +76,8 @@ Open the launcher once each time you start Premiere to enable the shortcuts. You
 PRONTO checks video and audio targets separately. If several targets are enabled, it tries them in track-number order. If none of those have room, it checks other tracks starting from the lowest targeted track number and moving toward higher numbers.
 
 For example, with **A2 and A5** targeted, it tries A2, then A5, then the other eligible tracks from A2 onward. With no audio targets enabled, it starts at **A1**.
+
+Visuals without audio only need a free video track. Clips that contain an audio stream still need audio space, even if that stream is silent. If Premiere cannot report whether a video or graphic has audio, PRONTO keeps the audio-space check.
 
 The full clip must fit in the available space. PRONTO uses existing tracks; it doesn't create new ones. If no suitable track is free, add an empty track or change your targets and try again.
 
@@ -91,9 +95,9 @@ Some audio formats may not preview. Use **Shift+Enter** to open those files in P
 
 **A shortcut doesn't respond:** open PRONTO Launcher, check that the shortcut isn't disabled, and make sure Premiere is active. If another app already uses the combination, choose a different one.
 
-**Newly imported or renamed media isn't showing:** press Ctrl+R in the search window.
+**Newly imported or renamed media isn't showing:** PRONTO checks for updates roughly every 30 seconds. Press Ctrl+R for an immediate refresh. The first opening still builds the list; later openings reuse it. Switching projects clears the old cache. Restarting Premiere clears the cache too.
 
-**An item won't insert:** make sure a timeline is open, the source media is online, and the destination tracks have enough space. Bins and sequences can appear in search, but aren't inserted by this prototype. Sequences can be opened in the Source Monitor.
+**An item won't insert:** make sure a timeline is open, the source media is online, and the destination tracks have enough space. Click a Bin or press Enter to highlight it in the Project panel. Double-click it there to open its contents. Sequences are placed as nested clips; placing a sequence inside itself, directly or through another nested sequence, is blocked.
 
 **Removing PRONTO:** close Premiere and double-click **Uninstall PRONTO.bat**. It removes the plugin from Adobe's extensions folder and keeps a recoverable backup. Your projects, media, saved shortcuts, and other extensions remain unchanged.
 
@@ -103,4 +107,5 @@ Some audio formats may not preview. Use **Shift+Enter** to open those files in P
 - The first opening may take longer while Premiere loads the extension.
 - Audio preview support depends on the file format.
 - PRONTO is a prototype. Try it on a copy of an important project first, and report any unexpected behavior with your Premiere version and the steps that caused it.
+
 

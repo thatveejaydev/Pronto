@@ -34,6 +34,15 @@ function fixture() {
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../host.jsx'), 'utf8'), ctx);
   return { host: ctx.BinSearchHost, project, seq, calls, time, media, bin, ctx };
 }
+function makeSequence(f) {
+  f.media.isSequence=()=>true;
+  const empty=()=>Object.assign([{clips:Object.assign([],{numItems:0})}],{numTracks:1});
+  const source={sequenceID:'source-seq',projectItem:f.media,videoTracks:empty(),audioTracks:empty()};
+  f.seq.projectItem={nodeId:'destination',isSequence:()=>true};
+  f.project.sequences=Object.assign([source,f.seq],{numSequences:2});
+  f.project.openSequence=id=>{f.project.activeSequence=f.project.sequences.find(x=>x.sequenceID===id);return true;};
+  return source;
+}
 const insert = f => JSON.parse(f.host.insert('p1', 's1', 'clip-1', 0, 0));
 test('Nested indexing and JSON round trip without native JSON use', () => {
   const f = fixture(); vm.runInContext('JSON = undefined', f.ctx);
@@ -63,10 +72,10 @@ test('Timeline switch blocks stale track choices', () => { const f = fixture(); 
 test('No active timeline handled', () => { const f = fixture(); f.project.activeSequence = null; assert.equal(insert(f).ok, false); });
 test('Removed item handled', () => { const f = fixture(); f.media.nodeId = 'gone'; assert.equal(insert(f).ok, false); });
 test('Offline media blocked', () => { const f = fixture(); f.media.isOffline = () => true; assert.equal(insert(f).ok, false); assert.equal(f.calls.length, 0); });
-test('Bins and sequences rejected', () => { const f = fixture(); assert.equal(JSON.parse(f.host.insert('p1', 's1', 'bin', 0, 0)).ok, false); f.media.isSequence = () => true; assert.equal(insert(f).ok, false); });
+test('Bins and unavailable sequences rejected', () => { const f = fixture(); assert.equal(JSON.parse(f.host.insert('p1', 's1', 'bin', 0, 0)).ok, false); f.media.isSequence = () => true; assert.equal(insert(f).ok, false); });
 test('Host insertion failure and exception are reported', () => { const f = fixture(); f.seq.overwriteClip = () => false; assert.equal(insert(f).ok, false); f.seq.overwriteClip = () => { throw Error('Locked'); }; assert.equal(insert(f).error, 'Locked'); });
 function panelFixture(initialQuery = 'Footage', failResize = false, audioMedia = false) {
-  const f = fixture(), elements = {}, pending = [], events = {}, players = [], registeredKeys = [];
+  const f = fixture(), elements = {}, pending = [], events = {}, players = [], registeredKeys = [], timers = [], requests = [], documentEvents = []; let now = 1000;
   if(audioMedia) f.media.getMediaPath=()=> 'C:/audio.mp3';
   function FakeAudio(){this.paused=true;players.push(this);}
   FakeAudio.prototype.play=function(){this.paused=false;this.onplaying();};
@@ -85,12 +94,12 @@ function panelFixture(initialQuery = 'Footage', failResize = false, audioMedia =
     };
   }
   for (const id of ['status', 'refresh', 'close', 'insert', 'results', 'query', 'count', 'context']) elements[id] = element(['video','audio'].includes(id) ? 'select' : 'div', id);
-  const document = { getElementById: id => elements[id], createElement: tag => element(tag), addEventListener() {} };
-  const ctx = vm.createContext({ document, BinSearchShortcut: require('../shortcut.js'), Audio: FakeAudio, ProntoPreview: require('../preview.js'), BinSearch: search, setTimeout: fn => fn(), window: { requestAnimationFrame: () => { throw Error('Rendering callbacks unavailable'); }, __adobe_cep__: { registerKeyEventsInterest: value => registeredKeys.push(JSON.parse(value)), dispatchEvent: event => { assert.equal(typeof event,'object'); assert.equal(event.extensionId,'local.binsearch.popup'); }, addEventListener: (name, fn) => { events[name] = fn; }, resizeContent: () => { if (failResize) throw Error('Native resize failed'); }, closeExtension: () => { f.closed = true; }, evalScript: (script, cb) => pending.push(() => cb(vm.runInContext(script, f.ctx))) } } });
+  const document = { getElementById: id => elements[id], createElement: tag => element(tag), addEventListener(name, fn) { documentEvents[name]=fn; } };
+  const ctx = vm.createContext({ document, Date: { now:()=>now }, BinSearchShortcut: require('../shortcut.js'), Audio: FakeAudio, ProntoPreview: require('../preview.js'), BinSearch: search, setTimeout: fn => fn(), window: { setInterval: fn => timers.push(fn), requestAnimationFrame: () => { throw Error('Rendering callbacks unavailable'); }, __adobe_cep__: { registerKeyEventsInterest: value => registeredKeys.push(JSON.parse(value)), dispatchEvent: event => { assert.equal(typeof event,'object'); assert.equal(event.extensionId,'local.binsearch.popup'); }, addEventListener: (name, fn) => { events[name] = fn; }, resizeContent: () => { if (failResize) throw Error('Native resize failed'); }, closeExtension: () => { f.closed = true; }, evalScript: (script, cb) => { requests.push(script); pending.push(() => cb(vm.runInContext(script, f.ctx))); } } } });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../panel.js'), 'utf8'), ctx);
   if (initialQuery) { elements.query.value = initialQuery; elements.query.listeners.input(); pending.shift()(); }
   const key = (value, extra = {}) => elements.query.listeners.keydown({ key: value, preventDefault() {}, ...extra });
-  return Object.assign(f, { elements, pending, key, events, players, registeredKeys });
+  return Object.assign(f, { elements, pending, key, events, players, registeredKeys, timers, requests, document, documentEvents, advance: ms=>{now+=ms;} });
 }
 test('Keyboard navigation, Enter and in-flight duplicate protection', () => {
   const f = panelFixture(); f.key('ArrowDown'); f.key('ArrowDown');
@@ -148,10 +157,11 @@ test('Source open guards against stale, removed, bin and offline items', () => {
   f.media.isOffline = () => true;
   assert.equal(open('p1','clip-1').ok, false); assert.equal(opens, 0);
 });
-test('Source Monitor supports sequences without timeline insertion', () => {
-  const f = fixture(); f.media.isSequence = () => true;
-  f.ctx.app.sourceMonitor = {openProjectItem: item => { assert.equal(item, f.media); return 0; }};
-  assert.equal(JSON.parse(f.host.openSource('p1','clip-1')).ok, true); assert.equal(f.calls.length, 0);
+test('Shift action opens a sequence timeline without inserting or opening the Source Monitor', () => {
+  const f=fixture(); const source=makeSequence(f); f.project.activeSequence=null;
+  f.ctx.app.sourceMonitor={openProjectItem:()=>{throw Error('Must not open Source Monitor');}};
+  assert.equal(JSON.parse(f.host.openSource('p1','clip-1')).ok,true);
+  assert.equal(f.project.activeSequence,source); assert.equal(f.calls.length,0);
 });
 test('IME Enter is ignored and Escape closes popup', () => {
   const f = panelFixture(); f.elements.query.value = '台北'; f.elements.query.listeners.input();
@@ -183,7 +193,7 @@ test('Popup stays open for silent host no-op', () => { const f=panelFixture(); f
 test('Wrong playhead placement is failure', () => { const f=fixture(); const original=f.seq.overwriteClip; f.seq.overwriteClip=(...a)=>{ original(...a); f.seq.videoTracks[0].clips[0].start.seconds=0; return true; }; assert.match(insert(f).error,/did not match/); });
 test('A native false return with verified new clip is accepted', () => { const f=fixture(); const original=f.seq.overwriteClip; f.seq.overwriteClip=(...a)=>{ original(...a); return false; }; assert.equal(insert(f).ok,true); });
 test('Existing clip mutation is detected', () => { const f=fixture(); f.seq.videoTracks=tracks([track([[0,5]])]); const original=f.seq.overwriteClip; f.seq.overwriteClip=(...a)=>{ original(...a); f.seq.videoTracks[0].clips[0].end.seconds=4; return true; }; assert.match(insert(f).error,/existing timeline clip/); });
-test('Empty popup does not index or render project results', () => { const f=panelFixture(''); assert.equal(f.pending.length,0); assert.equal(f.elements.results.children.length,0); assert.equal(f.elements.results.hidden,true); assert.equal(f.elements.count.hidden,true); assert.equal(f.elements.query.attrs['aria-expanded'],'false'); });
+test('Empty popup warms the cache without rendering results', () => { const f=panelFixture(''); assert.equal(f.pending.length,1); assert.equal(f.elements.results.children.length,0); assert.equal(f.elements.results.hidden,true); assert.equal(f.elements.count.hidden,true); assert.equal(f.elements.query.attrs['aria-expanded'],'false'); });
 test('First typing indexes once and preserves subsequent typing', () => { const f=panelFixture(''); f.elements.query.value='Footage'; f.elements.query.listeners.input(); assert.equal(f.pending.length,1); f.elements.query.value='台北'; f.elements.query.listeners.input(); assert.equal(f.pending.length,1); f.pending.shift()(); assert.equal(f.elements.results.children.length,1); assert.equal(f.elements.query.value,'台北'); });
 test('Clearing search hides all results without reindexing', () => { const f=panelFixture(); f.elements.query.value='  '; f.elements.query.listeners.input(); assert.equal(f.elements.results.hidden,true); assert.equal(f.elements.count.hidden,true); assert.equal(f.pending.length,0); f.key('Enter'); assert.equal(f.pending.length,0); });
 test('Resize exception cannot stop project indexing or filtering', () => { const f=panelFixture('台北',true); assert.equal(f.elements.results.children.length,1); assert.equal(f.elements.results.hidden,false); });
@@ -194,11 +204,22 @@ test('Arrow navigation keeps existing result rows', () => {
   assert.equal(row.attrs['aria-selected'],'false');
   assert.equal(f.elements.results.children[1].attrs['aria-selected'],'true');
 });
-test('Warm reopen clears old results and indexes the current project on typing', () => {
-  const f=panelFixture('台北'); f.events['local.binsearch.open']();
-  assert.equal(f.elements.query.value,''); assert.equal(f.elements.results.hidden,true); assert.equal(f.pending.length,0);
-  f.project.documentID='p2'; f.media.name='New clip';
-  f.elements.query.value='New clip'; f.elements.query.listeners.input(); f.pending.shift()();
+test('Warm reopen searches cached media immediately without another scan', () => {
+  const f=panelFixture('台北'); f.key('Escape'); f.events['local.binsearch.open']();
+  assert.equal(f.elements.query.value,''); assert.equal(f.elements.results.hidden,true);
+  f.elements.query.value='台北'; f.elements.query.listeners.input();
+  assert.equal(f.elements.results.children.length,1);
+  assert.equal(f.requests.filter(x=>x.startsWith('BinSearchHost.index(')).length,1);
+  f.pending.shift()();
+  assert.equal(f.pending.length,0);
+  f.key('Enter'); f.pending.shift()(); assert.equal(f.calls.length,1);
+});
+test('Project switch discards cached results and indexes the new project', () => {
+  const f=panelFixture('台北'); f.project.documentID='p2'; f.media.name='New clip';
+  f.events['local.binsearch.open'](); f.pending.shift()();
+  f.elements.query.value='New clip'; f.elements.query.listeners.input();
+  assert.equal(f.elements.results.children.length,0);
+  f.pending.shift()();
   assert.equal(f.elements.results.children.length,1);
   f.key('Enter'); f.pending.shift()(); assert.equal(f.calls.length,1);
 });
@@ -332,4 +353,295 @@ test('Space key aliases match with exact modifiers',()=>{
    assert.equal(shortcut.matches({...event,ctrlKey:true},config),false);
  }
 });
+test('Visuals with zero mapped audio insert over occupied audio without changing it', () => {
+  for (const extension of ['jpg', 'mogrt', 'mov']) {
+    for (const callable of [false, true]) {
+      const f=fixture(); f.media.getMediaPath=()=> 'C:/media/source.'+extension;
+      const mapping={audioClipsNumber:0};
+      f.media.getAudioChannelMapping=callable ? ()=>mapping : mapping;
+      f.seq.audioTracks=tracks([track([[0,100]]),track([[0,100]])]);
+      const before=JSON.stringify(f.seq.audioTracks);
+      const result=insert(f);
+      assert.equal(result.ok,true,JSON.stringify(result)); assert.equal(result.audio,-1);
+      assert.equal(result.video,0); assert.equal(result.message,'Placed '+f.media.name+' on V1.');
+      assert.equal(JSON.stringify(f.seq.audioTracks),before);
+    }
+  }
+});
+test('Still images and legacy titles tolerate missing audio mapping', () => {
+  for (const extension of ['PNG','jpg','psd','prtl']) {
+    const f=fixture(); f.media.getMediaPath=()=> 'C:/media/source.'+extension;
+    f.media.getAudioChannelMapping=()=>{throw Error('No audio mapping');};
+    f.seq.audioTracks=tracks([track([[0,100]])]);
+    assert.equal(insert(f).ok,true);
+  }
+});
+test('Video-only media can insert into a sequence with no audio tracks', () => {
+  const f=fixture(); f.media.getAudioChannelMapping={audioClipsNumber:0};
+  f.seq.audioTracks=tracks([]);
+  assert.equal(insert(f).ok,true); assert.equal(f.calls.length,1);
+});
+test('Video-only insertion still respects video targets and occupied video tracks', () => {
+  const f=fixture(); f.media.getAudioChannelMapping={audioClipsNumber:0};
+  f.seq.audioTracks=tracks([track([[0,100]])]);
+  f.seq.videoTracks=tracks([track(),track([[10,15]]),track()]);
+  f.seq.videoTracks[1].isTargeted=()=>true;
+  assert.equal(insert(f).video,2);
+});
+test('Video-only insertion blocks when all video tracks are full', () => {
+  const f=fixture(); f.media.getAudioChannelMapping={audioClipsNumber:0};
+  f.seq.videoTracks=tracks([track([[0,100]])]);
+  const result=insert(f); assert.equal(result.ok,false);
+  assert.match(result.error,/empty video track/); assert.equal(f.calls.length,0);
+});
+test('Video and graphics with audio still require audio space', () => {
+  for (const extension of ['mov','mogrt','aep']) {
+    const f=fixture(); f.media.getMediaPath=()=> 'C:/media/source.'+extension;
+    f.seq.audioTracks=tracks([track([[0,100]])]);
+    assert.equal(insert(f).ok,false); assert.equal(f.calls.length,0);
+  }
+});
+test('Unknown or invalid audio mapping is not proof of silent video', () => {
+  for (const count of [undefined,null,-1,NaN,Infinity,0.5,'0']) {
+    const f=fixture(); f.media.getMediaPath=()=> 'C:/media/source.mov';
+    f.media.getAudioChannelMapping={audioClipsNumber:count};
+    f.seq.audioTracks=tracks([track([[0,100]])]);
+    assert.equal(insert(f).ok,false); assert.equal(f.calls.length,0);
+  }
+});
+test('A renamed video cannot become a still-image fallback', () => {
+  const f=fixture(); f.media.name='photo.jpg'; f.media.getMediaPath=()=> 'C:/media/source.mov';
+  f.media.getAudioChannelMapping={}; f.seq.audioTracks=tracks([track([[0,100]])]);
+  assert.equal(insert(f).ok,false); assert.equal(f.calls.length,0);
+});
+test('Unexpected audio created for video-only media is reported', () => {
+  const f=fixture(); f.media.getAudioChannelMapping={audioClipsNumber:0};
+  const original=f.seq.overwriteClip;
+  f.seq.overwriteClip=(...args)=>{
+    original(...args);
+    const clips=f.seq.audioTracks[0].clips;
+    clips.push({nodeId:'unexpected-audio',projectItem:f.media,start:{seconds:10},end:{seconds:15}});
+    clips.numItems=clips.length;
+  };
+  assert.match(insert(f).error,/did not match/);
+});
+
+
+test('Background refresh keeps cached results usable and preserves selected identity', () => {
+  const f=panelFixture('Footage'); f.key('ArrowDown'); f.key('ArrowDown');
+  f.advance(30001); f.timers[0](); f.pending.shift()();
+  assert.equal(f.pending.length,1); assert.equal(f.elements.results.children.length,3);
+  assert.equal(f.elements.count.textContent,'3 matches');
+  f.pending.shift()();
+  assert.equal(f.elements.query.attrs['aria-activedescendant'],'result-2');
+  f.key('Enter'); f.pending.shift()(); assert.equal(f.calls.length,1);
+});
+test('Closed popup refreshes in background and retains results for reopening', () => {
+  const f=panelFixture('台北'); f.key('Escape');
+  f.media.name='Renamed'; f.advance(30001); f.timers[0]();
+  f.pending.shift()(); f.pending.shift()();
+  assert.equal(f.elements.results.hidden,true);
+  f.events['local.binsearch.open'](); f.pending.shift()();
+  f.elements.query.value='Renamed'; f.elements.query.listeners.input();
+  assert.equal(f.elements.results.children.length,1); assert.equal(f.pending.length,0);
+});
+test('Timeline switch updates cached insertion context without rescanning bins', () => {
+  const f=panelFixture('台北'); f.seq.sequenceID='s2';
+  f.events['local.binsearch.open'](); f.pending.shift()();
+  f.elements.query.value='台北'; f.elements.query.listeners.input();
+  f.key('Enter'); f.pending.shift()();
+  assert.equal(f.calls.length,1);
+  assert.equal(f.requests.filter(x=>x.startsWith('BinSearchHost.index(')).length,1);
+});
+test('Closing during the initial scan retains its result without showing rows', () => {
+  const f=panelFixture(''); f.key('Escape'); f.pending.shift()();
+  assert.equal(f.elements.results.hidden,true);
+  f.events['local.binsearch.open'](); f.pending.shift()();
+  f.elements.query.value='台北'; f.elements.query.listeners.input();
+  assert.equal(f.elements.results.children.length,1);
+  assert.equal(f.requests.filter(x=>x.startsWith('BinSearchHost.index(')).length,1);
+});
+test('Project closure clears remembered items', () => {
+  const f=panelFixture('台北'); f.ctx.app.project=null;
+  f.events['local.binsearch.open'](); f.pending.shift()();
+  f.elements.query.value='台北'; f.elements.query.listeners.input();
+  assert.equal(f.elements.results.children.length,0);
+  f.pending.shift()(); assert.equal(f.calls.length,0);
+});
+test('Background timer coalesces with an index already in progress', () => {
+  const f=panelFixture(''); f.timers[0](); f.events['local.binsearch.open']();
+  assert.equal(f.pending.length,1); f.pending.shift()();
+  f.timers[0](); f.timers[0](); assert.equal(f.pending.length,1);
+});
+test('Background scan failure retains the last usable cache', () => {
+  const f=panelFixture('台北');
+  f.ctx.BinSearchHost.index=()=>JSON.stringify({ok:false,error:'Temporary failure'});
+  f.advance(30001); f.timers[0](); f.pending.shift()(); f.pending.shift()();
+  assert.equal(f.elements.results.children.length,1);
+  f.key('Enter'); f.pending.shift()(); assert.equal(f.calls.length,1);
+});
+test('Context check never traverses bins', () => {
+  const f=fixture(); Object.defineProperty(f.project.rootItem,'children',{get(){throw Error('Traversal');}});
+  const result=JSON.parse(f.host.state()); assert.equal(result.ok,true); assert.equal(result.project,'p1');
+});
+
+test('Cached insertion is allowed while a background index is pending', () => {
+  const f=panelFixture('台北'); f.advance(30001); f.timers[0](); f.pending.shift()();
+  f.key('Enter'); assert.equal(f.pending.length,2);
+  f.pending.shift()(); f.pending.shift()(); assert.equal(f.calls.length,1);
+});
+test('Background refresh preserves active preview and its pause button', () => {
+  const f=panelFixture('台北',false,true); f.key(' ',{ctrlKey:true}); f.pending.shift()();
+  assert.equal(f.players[0].paused,false);
+  f.advance(30001); f.timers[0](); f.pending.shift()(); f.pending.shift()();
+  assert.equal(f.players[0].paused,false);
+  assert.equal(f.elements['preview-0'].textContent,'Ⅱ');
+});
+test('Ctrl+R refreshes newly imported or renamed media immediately', () => {
+  const f=panelFixture('台北'); f.media.name='Renamed';
+  f.documentEvents.keydown({ctrlKey:true,key:'r',preventDefault(){}});
+  f.pending.shift()();
+  f.elements.query.value='Renamed'; f.elements.query.listeners.input();
+  assert.equal(f.elements.results.children.length,1);
+});
+
+test('Sequences are indexed as insertable', () => {
+  const f=fixture(); makeSequence(f);
+  const item=JSON.parse(f.host.index()).items[2];
+  assert.equal(item.kind,'Sequence'); assert.equal(item.insertable,true);
+});
+test('Enter inserts the sequence project item as a nested clip at the playhead', () => {
+  const f=fixture(); makeSequence(f);
+  const result=insert(f); assert.equal(result.ok,true,JSON.stringify(result));
+  assert.equal(f.calls[0][0],f.media); assert.equal(f.calls[0][1],f.time);
+});
+test('Sequence placement obeys occupied tracks and track targets', () => {
+  const f=fixture(); makeSequence(f);
+  f.seq.videoTracks=tracks([track(),track([[0,100]]),track()]);
+  f.seq.videoTracks[1].isTargeted=()=>true;
+  f.seq.audioTracks=tracks([track([[0,100]]),track()]);
+  const result=insert(f); assert.equal(result.ok,true); assert.equal(result.video,2); assert.equal(result.audio,1);
+});
+test('A full destination blocks sequence insertion before editing', () => {
+  const f=fixture(); makeSequence(f); f.seq.videoTracks=tracks([track([[0,100]])]);
+  assert.equal(insert(f).ok,false); assert.equal(f.calls.length,0);
+});
+test('Self nesting is rejected before editing', () => {
+  const f=fixture(); const source=makeSequence(f); source.sequenceID='s1';
+  assert.match(insert(f).error,/inside itself/); assert.equal(f.calls.length,0);
+});
+test('Indirect recursive nesting is rejected before editing', () => {
+  const f=fixture(); const source=makeSequence(f);
+  source.videoTracks[0].clips=collection([{projectItem:f.seq.projectItem}]);
+  assert.match(insert(f).error,/nested sequences/); assert.equal(f.calls.length,0);
+});
+test('Sequence opening verifies the active timeline instead of trusting return values', () => {
+  const f=fixture(); makeSequence(f); f.project.openSequence=()=>true;
+  assert.match(JSON.parse(f.host.openSource('p1','clip-1')).error,/could not open/);
+  f.project.openSequence=()=>{f.project.activeSequence=f.project.sequences[0];return false;};
+  assert.equal(JSON.parse(f.host.openSource('p1','clip-1')).ok,true);
+});
+test('Sequence names ending in audio extensions still insert video', () => {
+  const f=fixture(); makeSequence(f); f.media.name='Edit.wav';
+  assert.equal(insert(f).video,0);
+});
+test('Sequence Enter and Shift+Enter route correctly through the popup', () => {
+  for (const shiftKey of [false,true]) {
+    const f=panelFixture(''); const source=makeSequence(f);
+    f.elements.query.value='台北'; f.elements.query.listeners.input(); f.pending.shift()();
+    f.key('Enter',{shiftKey}); f.pending.shift()();
+    assert.equal(f.closed,true);
+    assert.equal(f.calls.length,shiftKey?0:1);
+    assert.equal(f.project.activeSequence,shiftKey?source:f.seq);
+  }
+});
+test('Shift-click opens the clicked sequence timeline', () => {
+  const f=panelFixture(''); const source=makeSequence(f);
+  f.elements.query.value='台北'; f.elements.query.listeners.input(); f.pending.shift()();
+  f.elements.results.children[0].listeners.click({shiftKey:true,detail:1}); f.pending.shift()();
+  assert.equal(f.project.activeSequence,source); assert.equal(f.calls.length,0); assert.equal(f.closed,true);
+});
+
+function binViews(f) {
+  const selections={}, changes=[];
+  f.ctx.app.getProjectViewIDs=()=>['other','current'];
+  f.ctx.app.getProjectFromViewID=id=>id==='current'?f.project:{documentID:'other-project'};
+  f.ctx.app.setProjectViewSelection=(items,id)=>{changes.push(id);selections[id]=items;};
+  f.ctx.app.getProjectViewSelection=id=>selections[id]||[];
+  return {selections,changes};
+}
+test('Bin label takes priority over sequence flags and tolerates string type values', () => {
+  const f=fixture(); f.bin.type='2'; f.bin.isSequence=()=>true;
+  const items=JSON.parse(f.host.index()).items;
+  assert.equal(items[0].kind,'Bin'); assert.equal(items[0].insertable,false);
+  assert.equal(items.length,3);
+});
+test('Bin reveal selects only a view belonging to the active project', () => {
+  const f=fixture(),views=binViews(f); f.project.activeSequence=null;
+  assert.equal(JSON.parse(f.host.revealBin('p1','bin')).ok,true);
+  assert.deepEqual(views.changes,['current']); assert.equal(views.selections.current[0],f.bin);
+  assert.equal(f.calls.length,0);
+});
+test('Bin reveal rejects stale, removed and non-bin results', () => {
+  const f=fixture(),views=binViews(f);
+  for(const args of [['wrong','bin'],['p1','missing'],['p1','clip-1']]) {
+    assert.equal(JSON.parse(f.host.revealBin(...args)).ok,false);
+  }
+  assert.equal(views.changes.length,0);
+});
+test('Bin reveal requires verified selection and reports unavailable views', () => {
+  const f=fixture(); binViews(f);
+  f.ctx.app.setProjectViewSelection=()=>true;
+  assert.equal(JSON.parse(f.host.revealBin('p1','bin')).ok,false);
+  f.ctx.app.getProjectViewIDs=()=>[];
+  assert.equal(JSON.parse(f.host.revealBin('p1','bin')).ok,false);
+});
+test('Bin Enter and click highlight without a timeline; Shift behaves consistently', () => {
+  for(const click of [false,true]) for(const shiftKey of [false,true]) {
+    const f=panelFixture(''); const views=binViews(f); f.project.activeSequence=null;
+    f.elements.query.value='Footage'; f.elements.query.listeners.input(); f.pending.shift()();
+    const row=f.elements.results.children[0];
+    assert.equal(row.children[0].className,'result-icon bin-icon');
+    assert.match(row.children[2].textContent,/^Bin ·/);
+    if(click) row.listeners.click({shiftKey,detail:1}); else f.key('Enter',{shiftKey});
+    f.pending.shift()();
+    assert.equal(views.selections.current[0],f.bin);
+    assert.equal(f.closed,true); assert.equal(f.calls.length,0);
+  }
+});
+test('Failed bin reveal keeps the popup open with an actionable error', () => {
+  const f=panelFixture('Footage'); binViews(f); f.ctx.app.getProjectViewIDs=()=>[];
+  f.key('Enter'); f.pending.shift()();
+  assert.ok(!f.closed); assert.match(f.elements.status.textContent,/Open the Project panel/);
+});
+
+test('02_UTILITY is a Bin even when the shared host BIN enum is missing', () => {
+  const f=fixture(); f.bin.name='02_UTILITY'; delete f.ctx.ProjectItemType.BIN;
+  f.bin.isSequence=()=>true;
+  const result=JSON.parse(f.host.index());
+  assert.equal(result.ok,true); assert.equal(result.items[0].kind,'Bin');
+  assert.equal(result.items[0].insertable,false); assert.equal(result.items.length,3);
+  const views=binViews(f);
+  assert.equal(JSON.parse(f.host.revealBin('p1','bin')).ok,true);
+  assert.equal(views.selections.current[0],f.bin);
+});
+test('Native bin type wins over an incorrect shared enum, including empty bins', () => {
+  const f=fixture(); f.ctx.ProjectItemType.BIN=99; f.bin.type='2';
+  f.bin.children=collection([]); f.bin.isSequence=()=>true;
+  const result=JSON.parse(f.host.index());
+  assert.equal(result.items[0].kind,'Bin'); assert.equal(result.items.length,1);
+});
+test('A string false sequence result is not treated as a sequence', () => {
+  const f=fixture(); f.media.isSequence=()=> 'false'; f.media.name='photo.png';
+  assert.equal(JSON.parse(f.host.index()).items[2].kind,'Image');
+});
+test('02_UTILITY renders its bin label and folder icon with a missing BIN enum', () => {
+  const f=panelFixture(''); f.bin.name='02_UTILITY'; delete f.ctx.ProjectItemType.BIN;
+  f.bin.isSequence=()=>true;
+  f.elements.query.value='02_'; f.elements.query.listeners.input(); f.pending.shift()();
+  const row=f.elements.results.children[0];
+  assert.equal(row.children[0].className,'result-icon bin-icon');
+  assert.match(row.children[2].textContent,/^Bin · 02_UTILITY/);
+});
 console.log(`${passed} tests passed. These are mock-host tests, not Premiere integration tests.`);
+

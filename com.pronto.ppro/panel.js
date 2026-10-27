@@ -1,7 +1,8 @@
 (function () {
   'use strict';
   var $ = function (id) { return document.getElementById(id); };
-  var data = null, matches = [], selected = 0, busy = false, indexing = false, lastHeight = 0, generation = 0, prepared = null;
+  var data = null, matches = [], selected = 0, busy = false, indexing = false, lastHeight = 0, generation = 0, prepared = null, indexedAt = 0, checking = false;
+  var previewId = null, previewState = 'stopped';
   var previewShortcut = BinSearchShortcut.preview('Ctrl+Space');
   function registerPreviewKey() {
     var bridge = window.__adobe_cep__;
@@ -13,6 +14,7 @@
   }
   registerPreviewKey();
   var preview = ProntoPreview.create(call, function (id, state) {
+    previewId = id; previewState = state;
     matches.forEach(function (item, i) {
       var button = $('preview-' + i); if (!button) return;
       var active = item.id === id && (state === 'playing' || state === 'loading');
@@ -22,7 +24,7 @@
     });
   }, function (message) { status(message, true); resize(); }, function () { return new Audio(); });
   function togglePreview() {
-    if (busy || indexing || !data) return;
+    if (busy || checking || !data) return;
     var item = matches[selected];
     if (!item || item.kind !== 'Audio' || item.offline) return;
     status('', false); resize(); preview.toggle(data.project, item);
@@ -73,10 +75,12 @@
       if (item.kind === 'Audio' && !item.offline) {
         var button = document.createElement('button');
         button.id = 'preview-' + i; button.className = 'preview-button'; button.type = 'button';
-        button.textContent = '▶'; button.title = 'Preview audio' + (previewShortcut ? ' (' + previewShortcut.label + ')' : '');
-        button.setAttribute('aria-label', 'Preview ' + item.name);
+        var playing = previewId === item.id && (previewState === 'playing' || previewState === 'loading');
+        button.textContent = playing ? (previewState === 'loading' ? '…' : 'Ⅱ') : '▶';
+        button.setAttribute('aria-pressed', String(playing)); button.title = 'Preview audio' + (previewShortcut ? ' (' + previewShortcut.label + ')' : '');
+        button.setAttribute('aria-label', (playing ? 'Pause ' : 'Preview ') + item.name);
         button.addEventListener('click', function (e) {
-          e.stopPropagation(); e.preventDefault(); if (busy || indexing || e.detail > 1) return;
+          e.stopPropagation(); e.preventDefault(); if (busy || checking || e.detail > 1) return;
           select(i); $('query').focus(); togglePreview();
         });
         row.appendChild(button);
@@ -101,35 +105,60 @@
   function reset() {
     preview.stop();
     if (busy) return;
-    generation++; data = null; prepared = null; matches = []; selected = 0; indexing = false;
+    matches = []; selected = 0;
     $('query').value = ''; status('', false); setBusy(false); filter(); $('query').focus();
   }
-  function filter() {
-    preview.stop();
+  function filter(preserveSelection) {
+    var previous = preserveSelection && matches[selected] ? matches[selected].id : null;
+    if (!preserveSelection) preview.stop();
     var query = $('query').value.trim();
     var all = query && data ? BinSearch.filter(data.items, query, prepared) : [];
     matches = all.slice(0, 100); selected = 0;
-    $('count').textContent = indexing ? 'Searching…' : all.length ? all.length + ' matches' + (all.length > 100 ? ' · showing first 100' : '') : 'No matches'; draw();
+    if (previous) {
+      for (var i = 0; i < matches.length; i++) { if (matches[i].id === previous) { selected = i; break; } }
+      if (!matches[selected] || matches[selected].id !== previous || matches[selected].offline) preview.stop();
+    }
+    $('count').textContent = indexing && !data ? 'Searching…' : all.length ? all.length + ' matches' + (all.length > 100 ? ' · showing first 100' : '') : 'No matches'; draw();
   }
-  function refresh() {
+  function refresh(background) {
     if (busy || indexing) return;
     var requestGeneration = generation;
-    indexing = true; status('', false); filter();
-    // CEP can throttle animation frames in modeless windows. Use a timer, not a
-    // rendering callback, to start the host request after the input event returns.
+    indexing = true;
+    if (!background) status('', false);
+    if (!data) filter();
     setTimeout(function () {
-    if (requestGeneration !== generation) return;
-    call('index', [], function (error, result) {
       if (requestGeneration !== generation) return;
-      prepared = error ? null : BinSearch.prepare(result.items);
-      data = error ? null : result;
-      indexing = false; setBusy(false); status(error ? error.message : '', !!error); filter();
-    });
+      call('index', [], function (error, result) {
+        if (requestGeneration !== generation) return;
+        indexing = false;
+        if (!error) {
+          prepared = BinSearch.prepare(result.items); data = result; indexedAt = Date.now();
+        }
+        setBusy(busy);
+        if (!background || !data) status(error ? error.message : '', !!error);
+        // A closed popup stays empty. The completed index is retained for next time.
+        if (!busy) filter(true);
+      });
     }, 0);
   }
+  function checkContext() {
+    if (busy || checking || indexing) return;
+    checking = true;
+    call('state', [], function (error, result) {
+      checking = false;
+      if (error || (data && data.project !== result.project)) {
+        generation++; data = null; prepared = null; indexedAt = 0;
+        preview.stop(); filter();
+      }
+      if (error) { status(error.message, !!$('query').value.trim()); resize(); return; }
+      if (data) data.sequence = result.sequence;
+      if (!data || Date.now() - indexedAt >= 30000) refresh(true);
+    });
+  }
+  function reopen() { reset(); checkContext(); }
   function openSource() {
     preview.stop();
-    if (busy || indexing || !$('query').value.trim()) return;
+    if (busy || checking || !$('query').value.trim()) return;
     var item = matches[selected];
     if (!item || !data) return;
     setBusy(true); status('');
@@ -141,10 +170,11 @@
   }
   function insert() {
     preview.stop();
-    if (busy || indexing || !$('query').value.trim()) return;
+    if (busy || checking || !$('query').value.trim()) return;
     var item = matches[selected];
+    if (item && data && item.kind === 'Bin') { openSource(); return; }
     if (!item || !data || !data.sequence) { status('Select media and open a timeline, then press Ctrl+R to refresh.', true); resize(); return; }
-    if (!item.insertable || item.offline) { status('Choose online project media. Bins and sequences are search-only.', true); resize(); return; }
+    if (!item.insertable || item.offline) { status('Choose online media or a sequence. Choose a bin to highlight it in the Project panel.', true); resize(); return; }
     setBusy(true); status('Inserting…');
     call('insert', [data.project, data.sequence.id, item.id], function (error, result) {
       setBusy(false); status(error ? error.message : result.message, !!error); resize(); $('query').focus(); if (!error) close();
@@ -171,7 +201,7 @@
     if (!busy && window.__adobe_cep__) { reset(); window.__adobe_cep__.closeExtension(); }
   }
   if (window.__adobe_cep__ && window.__adobe_cep__.addEventListener) {
-    window.__adobe_cep__.addEventListener('local.binsearch.open', reset);
+    window.__adobe_cep__.addEventListener('local.binsearch.open', reopen);
     window.__adobe_cep__.addEventListener('local.binsearch.previewToggle', function () { if (previewShortcut && previewShortcut.key === 32 && !document.hidden) togglePreview(); });
     window.__adobe_cep__.addEventListener('local.binsearch.previewShortcut', function (event) {
       try {
@@ -182,11 +212,14 @@
     });
     if (window.__adobe_cep__.dispatchEvent) window.__adobe_cep__.dispatchEvent({type:'local.binsearch.getPreviewShortcut',scope:'APPLICATION',appId:'PPRO',extensionId:'local.binsearch.popup',data:''});
   }
-  document.addEventListener('visibilitychange', function () { if (document.hidden) reset(); });
+  document.addEventListener('visibilitychange', function () { if (document.hidden) reset(); else checkContext(); });
   if (window.addEventListener) {
     window.addEventListener('pagehide', function () { preview.stop(); });
     window.addEventListener('beforeunload', function () { preview.stop(); });
     window.addEventListener('blur', function () { preview.stop(); });
   }
   $('query').focus(); filter();
+  refresh(true);
+  if (window.setInterval) window.setInterval(checkContext, 30000);
 }());
+
