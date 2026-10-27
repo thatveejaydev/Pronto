@@ -1,0 +1,25 @@
+PRONTO - TERMS OF USE
+DRAFT FOR PUBLISHER REVIEW
+
+These draft terms describe intended use of the PRONTO prototype. They do not establish a software license or grant permission to copy, modify, resell, or redistribute it. The publisher should specify those permissions in a separate license before public distribution.
+
+1. Intended use
+PRONTO helps you find and use media in your own Adobe Premiere Pro projects. You are responsible for having permission to use the media you work with.
+
+2. Prototype software
+PRONTO is provided as a prototype. Features may change, and compatibility is not guaranteed for every Premiere version, system, or media format. Keep backups of your projects and check edits made by the plugin.
+
+3. Installation and shortcuts
+The included installer enables development extensions for your Windows account. The Windows shortcut helper runs while the launcher is loaded. Choose shortcuts that do not interfere with your other applications.
+
+4. Local media
+PRONTO searches the open project and uses local media files for audio previews. Its current implementation does not upload your project or audio to an online service.
+
+5. Updates and support
+No particular update schedule or support commitment is stated in this draft.
+
+6. Third-party software
+Adobe Premiere Pro is a separate product with its own license and terms. PRONTO is an independent extension and is not presented as an Adobe product.
+
+BEFORE PUBLICATION
+The publisher needs to add the rights-holder name, contact details, chosen software license, and any applicable warranty or liability terms. This draft is not a finalized legal agreement.

@@ -19,22 +19,19 @@ Built for **Premiere Pro 2026 on Windows**. PRONTO is currently a working protot
 
 ## Install on Windows
 
-You need Premiere Pro 2026 and the files from this repository.
+You need Premiere Pro 2026 and the complete download.
 
 1. Close Premiere Pro.
 2. On GitHub, choose **Code → Download ZIP**, then extract the ZIP.
-3. Open the extracted **Pronto** folder containing `install-windows.ps1`. If you downloaded the full workspace, this folder is inside **outputs**.
-4. In File Explorer's address bar, type `powershell` and press Enter. This opens a command window in that folder.
-5. Paste the following line and press Enter:
+3. Double-click **Install PRONTO.bat** in the main folder.
+4. Wait for the success message, then start Premiere Pro.
+5. Open **Window → Extensions → PRONTO Launcher** and click **Search project**.
 
-   ```powershell
-   powershell -NoProfile -ExecutionPolicy Bypass -File .\install-windows.ps1
-   ```
+Keep the batch files beside the com.pronto.ppro folder. Administrator access isn't required.
 
-6. Start Premiere Pro and open **Window → Extensions → PRONTO Launcher**.
-7. Click **Search project** to open the floating search window.
+The installer copies PRONTO to %APPDATA%\Adobe\CEP\extensions\com.pronto.ppro. It also enables development extensions for your Windows account, which this unsigned prototype needs. This setting also allows other unsigned CEP 12 extensions to load.
 
-The installer copies PRONTO into your Adobe extensions folder. Administrator access isn't required. It also enables loading development extensions, which is needed for this unsigned prototype. That preference applies to other unsigned extensions too; the command's script-running permission applies only to that run.
+Older PRONTO copies in known installation folders are moved out automatically. Previous files are kept in %APPDATA%\Adobe\ProntoBackups.
 
 ## Set your shortcuts
 
@@ -98,7 +95,7 @@ Some audio formats may not preview. Use **Shift+Enter** to open those files in P
 
 **An item won't insert:** make sure a timeline is open, the source media is online, and the destination tracks have enough space. Bins and sequences can appear in search, but aren't inserted by this prototype. Sequences can be opened in the Source Monitor.
 
-**Removing PRONTO:** close Premiere and remove its `local.binsearch.panel` folder from `%APPDATA%\Adobe\CEP\extensions`. This is the folder created by the included installer.
+**Removing PRONTO:** close Premiere and double-click **Uninstall PRONTO.bat**. It removes the plugin from Adobe's extensions folder and keeps a recoverable backup. Your projects, media, saved shortcuts, and other extensions remain unchanged.
 
 ## Current limits
 
@@ -106,3 +103,4 @@ Some audio formats may not preview. Use **Shift+Enter** to open those files in P
 - The first opening may take longer while Premiere loads the extension.
 - Audio preview support depends on the file format.
 - PRONTO is a prototype. Try it on a copy of an important project first, and report any unexpected behavior with your Premiere version and the steps that caused it.
+

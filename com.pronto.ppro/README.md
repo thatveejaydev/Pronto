@@ -2,25 +2,11 @@
 
 ## Install or update on Windows
 
-1. Close Premiere and extract the new ZIP.
-2. Open PowerShell inside the extracted BinSearch folder and run:
+Close Premiere, extract the complete download, and double-click **Install PRONTO.bat** in the parent folder. Restart Premiere and open **Window > Extensions > PRONTO Launcher**.
 
-~~~powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\install-windows.ps1
-~~~
+The installer installs to %APPDATA%\Adobe\CEP\extensions\com.pronto.ppro and moves older PRONTO copies to %APPDATA%\Adobe\ProntoBackups. No administrator access is needed. It enables unsigned CEP 12 development extensions for the current Windows user.
 
-3. Restart Premiere. Open **Window > Extensions > PRONTO Launcher** and click **Search project**. A separate floating search window opens with the search field focused. If Premiere lists **PRONTO** directly in Extensions, that also opens the popup.
-4. Set the timeline playhead, search for project media, use ↑/↓ and press Enter. Successful placement closes the popup; an error leaves it open. Escape or × dismisses it.
-
-The installer updates the existing user extension and first copies the previous installation into %APPDATA%\Adobe\BinSearchBackups. It does not install a second copy. The destination remains %APPDATA%\Adobe\CEP\extensions\local.binsearch.panel. No administrator privileges are needed. It enables unsigned CEP 12 development extensions via the current user's CSXS.12 PlayerDebugMode string setting. This preference also affects other unsigned CEP 12 extensions. The execution-policy override applies only to the installer process.
-
-Manual installation: copy CSXS, index.html, style.css, search.js, panel.js, host.jsx, launcher.html and launcher.js into that destination, replacing the older runtime files. CSXS/manifest.xml must sit directly beneath the extension folder. Set HKEY_CURRENT_USER\Software\Adobe\CSXS.12\PlayerDebugMode to the string 1, then restart.
-
-On macOS (not tested), copy those runtime files to ~/Library/Application Support/Adobe/CEP/extensions/local.binsearch.panel and run:
-
-~~~sh
-defaults write com.adobe.CSXS.12 PlayerDebugMode 1
-~~~
+To uninstall, close Premiere and double-click **Uninstall PRONTO.bat** in the parent folder. See the top-level README.txt for the simple setup guide.
 
 ## What changed
 
@@ -79,9 +65,10 @@ CSXS/manifest.xml registers the launcher and popup. launcher.html/js opens the p
 
 If the launcher is missing, check the installation folder nesting and CSXS.12 preference, and fully restart Premiere after replacing the manifest. A browser preview cannot access the project. If source duration cannot be read, set explicit source In/Out points; do not bypass the check.
 
-To uninstall, close Premiere and remove only local.binsearch.panel from the user CEP extensions folder. Restore the prior PlayerDebugMode value only if other development extensions do not rely on it. To roll back, restore the corresponding backed-up folder to that location with Premiere closed.
+To uninstall, close Premiere and run Uninstall PRONTO.bat from the parent folder. Previous files remain recoverable in %APPDATA%\Adobe\ProntoBackups.
 
 
 Track targeting: PRONTO reads enabled video and audio track targets when you insert. It tries targeted tracks in numerical order, then untargeted tracks at or above the lowest target number. With no targets enabled for that media type, it starts at track 1. A destination must have room for the full clip (and all mapped audio tracks). If no eligible destination is free, insertion stops without editing. Existing track targets are not changed.
 
 Audio preview: click the play button on an online audio result or press Ctrl+Space to play/pause the highlighted result. Changing the query/selection, inserting, opening the Source Monitor, or dismissing/leaving PRONTO stops playback. Preview plays the original source file independently of Premiere, without applying Premiere effects/channel mapping or source In/Out points. Format support depends on CEP; use Shift+Enter for files it cannot play. The media path is fetched only on demand. No network playback or external decoder is used.
+
