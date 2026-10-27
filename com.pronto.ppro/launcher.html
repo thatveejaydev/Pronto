@@ -1,13 +1,73 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PRONTO Launcher</title><link rel="stylesheet" href="style.css"></head>
-<body class="launcher">
-<button id="open" class="open-search">Search project</button>
-<fieldset class="shortcut-box"><legend>Shortcuts</legend>
-<div class="shortcut-row"><label for="record-shortcut">Open PRONTO:</label><button id="record-shortcut" class="shortcut-value" title="Click to record. Right-click to disable.">disabled</button></div>
-<div class="shortcut-row"><label for="record-preview-shortcut">Audio preview:</label><button id="record-preview-shortcut" class="shortcut-value" title="Click to record. Right-click to disable.">Ctrl+Space</button></div>
-</fieldset>
-<p id="shortcut-status" class="shortcut-status" role="status" aria-live="polite"></p>
-<p id="preview-shortcut-status" class="shortcut-status" role="status" aria-live="polite"></p>
-<p class="hint">Click a shortcut and press your keys. Esc cancels. Right-click to disable.</p>
-<div hidden><input id="shortcut" value="Alt+Space"><button id="save-shortcut"></button><button id="disable-shortcut"></button></div>
-<script src="shortcut.js"></script><script src="launcher.js"></script><script src="preview-settings.js"></script></body></html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PRONTO Launcher</title>
+  <link rel="stylesheet" href="client/theme.css">
+</head>
+<body class="launcher-shell">
+  <button id="open-palette" type="button" class="launch-btn">Search project</button>
+
+  <fieldset class="settings-card">
+    <legend>Shortcuts &amp; Preview</legend>
+    <div class="setting-row">
+      <label for="btn-open-shortcut">Open PRONTO:</label>
+      <button id="btn-open-shortcut" type="button" class="shortcut-badge" title="Click to record shortcut. Right-click to disable.">disabled</button>
+    </div>
+    <div class="setting-row">
+      <label for="btn-preview-shortcut">Audio preview:</label>
+      <button id="btn-preview-shortcut" type="button" class="shortcut-badge" title="Click to record shortcut. Right-click to disable.">Ctrl+Space</button>
+    </div>
+    <div class="setting-row">
+      <label for="btn-auto-preview">Auto audio preview:</label>
+      <button id="btn-auto-preview" type="button" class="shortcut-badge toggle-badge" aria-pressed="false" title="Automatically play audio when navigating results with arrow keys">Off</button>
+    </div>
+  </fieldset>
+
+  <p id="open-shortcut-status" class="status-note" role="status" aria-live="polite"></p>
+  <p id="preview-shortcut-status" class="status-note" role="status" aria-live="polite"></p>
+
+  <details class="guide-dropdown">
+    <summary>Tips, Prefixes &amp; Usage Guide</summary>
+    <div class="guide-content">
+      <h4>Search Prefixes</h4>
+      <p>Type a prefix before your search terms to filter by media type:</p>
+      <ul>
+        <li><code>a:</code> or <code>@audio</code> or <code>sfx:</code> — Audio files</li>
+        <li><code>v:</code> or <code>@video</code> — Video clips</li>
+        <li><code>i:</code> or <code>@image</code> — Still photos &amp; images</li>
+        <li><code>g:</code> or <code>@graphic</code> — Graphics, MOGRTs &amp; titles</li>
+        <li><code>s:</code> or <code>@seq</code> — Sequences</li>
+        <li><code>b:</code> or <code>@bin</code> — Project bins (folders)</li>
+      </ul>
+
+      <h4>Quick Filter Pills &amp; Recent Items</h4>
+      <ul>
+        <li>Click any pill (<strong>All, Recent, Audio, Video, Image, Graphic, Seq, Bin</strong>) in the search window to filter results with one click. Click an active pill again to reset to <strong>All</strong>.</li>
+        <li>Press <strong>Down Arrow</strong> when the search box is empty (or click <strong>Recent</strong>) to browse your last 15 used items in the project.</li>
+      </ul>
+
+      <h4>Result Actions</h4>
+      <ul>
+        <li><strong>Enter / Click</strong> — Places media or a nested sequence at the playhead in the first free track gap (or highlights a Bin in the Project panel).</li>
+        <li><strong>Shift+Enter / Shift+Click</strong> — Opens media in the Source Monitor, or opens/switches to a Sequence tab in the Timeline.</li>
+        <li><strong>Ctrl+Shift+Enter</strong> — Opens a Sequence in the Source Monitor.</li>
+        <li><strong>Alt+Enter / Alt+Click</strong> — Reveals and highlights any item or bin inside Premiere's Project panel.</li>
+        <li><strong>Ctrl+R</strong> — Rescans the active project immediately.</li>
+        <li><strong>Esc</strong> — Stops audio preview and closes the search window.</li>
+      </ul>
+
+      <h4>Shortcuts &amp; Audio Preview</h4>
+      <ul>
+        <li>Click <strong>Open PRONTO</strong> or <strong>Audio preview</strong> above and press your key combination (e.g. <code>Alt+Space</code>). Press <code>Esc</code> to cancel, or right-click a badge to disable it.</li>
+        <li>Enable <strong>Auto audio preview</strong> above to automatically audition sound effects as you arrow up and down through results.</li>
+        <li>Trimmed audio clips preview starting from their Premiere <strong>In point</strong> and stop at their <strong>Out point</strong>.</li>
+      </ul>
+    </div>
+  </details>
+
+  <script src="client/keybinding.js"></script>
+  <script src="client/launcher.js"></script>
+</body>
+</html>

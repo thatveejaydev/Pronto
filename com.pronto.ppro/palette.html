@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; connect-src 'none'; media-src 'self' file:">
+  <title>PRONTO</title>
+  <link rel="stylesheet" href="client/theme.css">
+</head>
+<body class="palette-shell">
+  <div class="search-header">
+    <input id="query" type="search" aria-label="Search project media" autocomplete="off" autofocus role="combobox" aria-controls="results" aria-expanded="false" aria-autocomplete="list">
+  </div>
+  <div id="filter-bar" class="filter-bar" role="toolbar" aria-label="Media category filters" hidden>
+    <button type="button" class="filter-pill" data-category="All" aria-pressed="true">All</button>
+    <button type="button" class="filter-pill" data-category="Recent" aria-pressed="false">Recent</button>
+    <button type="button" class="filter-pill" data-category="Audio" aria-pressed="false">Audio</button>
+    <button type="button" class="filter-pill" data-category="Video" aria-pressed="false">Video</button>
+    <button type="button" class="filter-pill" data-category="Image" aria-pressed="false">Image</button>
+    <button type="button" class="filter-pill" data-category="Graphic" aria-pressed="false">Graphic</button>
+    <button type="button" class="filter-pill" data-category="Sequence" aria-pressed="false">Seq</button>
+    <button type="button" class="filter-pill" data-category="Bin" aria-pressed="false">Bin</button>
+  </div>
+  <p id="count" class="count-bar" hidden></p>
+  <p id="status" class="status-banner" role="status" aria-live="polite" hidden></p>
+  <ul id="results" class="results-list" role="listbox" aria-label="Project items" hidden></ul>
+  <footer id="footer-hints" class="footer-hints" hidden>
+    <span><kbd>↵</kbd> Place / Bin</span>
+    <span><kbd>⇧↵</kbd> Source / Seq</span>
+    <span><kbd>Alt+↵</kbd> Reveal</span>
+    <span><kbd id="preview-kbd">⌃Space</kbd> Preview</span>
+    <span><kbd>⌃R</kbd> Refresh</span>
+  </footer>
+  <script src="client/keybinding.js"></script>
+  <script src="client/matcher.js"></script>
+  <script src="client/audio-player.js"></script>
+  <script src="client/palette.js"></script>
+</body>
+</html>

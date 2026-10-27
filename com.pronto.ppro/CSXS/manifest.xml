@@ -1,22 +1,22 @@
-﻿<?xml version="1.0" encoding="UTF-8"?>
-<ExtensionManifest Version="7.0" ExtensionBundleId="local.binsearch" ExtensionBundleVersion="0.2.0" ExtensionBundleName="PRONTO">
+<?xml version="1.0" encoding="UTF-8"?>
+<ExtensionManifest Version="7.0" ExtensionBundleId="com.pronto.ppro" ExtensionBundleVersion="1.0.0" ExtensionBundleName="PRONTO">
   <ExtensionList>
-    <Extension Id="local.binsearch.panel" Version="0.2.0" />
-    <Extension Id="local.binsearch.popup" Version="0.2.0" />
+    <Extension Id="com.pronto.ppro.launcher" Version="1.0.0" />
+    <Extension Id="com.pronto.ppro.palette" Version="1.0.0" />
   </ExtensionList>
   <ExecutionEnvironment>
     <HostList>
-      <Host Name="PPRO" Version="[26.0,26.9]" />
+      <Host Name="PPRO" Version="[24.0,99.9]" />
     </HostList>
     <LocaleList>
       <Locale Code="All" />
     </LocaleList>
     <RequiredRuntimeList>
-      <RequiredRuntime Name="CSXS" Version="12.0" />
+      <RequiredRuntime Name="CSXS" Version="11.0" />
     </RequiredRuntimeList>
   </ExecutionEnvironment>
   <DispatchInfoList>
-    <Extension Id="local.binsearch.panel">
+    <Extension Id="com.pronto.ppro.launcher">
       <DispatchInfo>
         <Resources>
           <MainPath>./launcher.html</MainPath>
@@ -33,17 +33,17 @@
           <Geometry>
             <Size>
               <Width>320</Width>
-              <Height>400</Height>
+              <Height>360</Height>
             </Size>
           </Geometry>
         </UI>
       </DispatchInfo>
     </Extension>
-    <Extension Id="local.binsearch.popup">
+    <Extension Id="com.pronto.ppro.palette">
       <DispatchInfo>
         <Resources>
-          <MainPath>./index.html</MainPath>
-          <ScriptPath>./host.jsx</ScriptPath>
+          <MainPath>./palette.html</MainPath>
+          <ScriptPath>./host/engine.jsx</ScriptPath>
         </Resources>
         <Lifecycle>
           <AutoVisible>true</AutoVisible>
@@ -53,12 +53,12 @@
           <Menu>PRONTO</Menu>
           <Geometry>
             <Size>
-              <Width>420</Width>
-              <Height>58</Height>
+              <Width>460</Width>
+              <Height>60</Height>
             </Size>
             <MinSize>
-              <Width>320</Width>
-              <Height>58</Height>
+              <Width>340</Width>
+              <Height>60</Height>
             </MinSize>
             <MaxSize>
               <Width>1000</Width>
