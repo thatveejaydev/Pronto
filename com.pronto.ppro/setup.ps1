@@ -4,6 +4,7 @@ param(
     [string]$Action = 'Install'
 )
 $ErrorActionPreference = 'Stop'
+$stagingDir = $null
 
 try {
     if (Get-Process -Name 'Adobe Premiere Pro' -ErrorAction SilentlyContinue) {
@@ -14,7 +15,6 @@ try {
     }
 
     $cepExtensionsRoot = [IO.Path]::GetFullPath((Join-Path $env:APPDATA 'Adobe\CEP\extensions'))
-    $backupsRoot       = [IO.Path]::GetFullPath((Join-Path $env:APPDATA 'Adobe\ProntoBackups'))
     $targetInstallDir  = Join-Path $cepExtensionsRoot 'com.pronto.ppro'
 
     function Assert-NoReparsePoints([string]$TargetPath) {
@@ -59,19 +59,15 @@ try {
         exit 0
     }
 
-    $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
-    $shortId   = [guid]::NewGuid().ToString('N').Substring(0, 8)
-    $sessionBackupDir = Join-Path $backupsRoot "$Action-$timestamp-$shortId"
-    if (Test-Path -LiteralPath $backupsRoot) {
-        Assert-NoReparsePoints $backupsRoot
-    }
-    New-Item -ItemType Directory -Path $sessionBackupDir -Force | Out-Null
-    $stagingDir = Join-Path $sessionBackupDir 'staged-package'
-
     if ($Action -eq 'Install') {
         $sourceRoot = [IO.Path]::GetFullPath($PSScriptRoot)
         if ($sourceRoot -eq $targetInstallDir -or ($existingFound -contains $sourceRoot)) {
             throw 'Run the installer from the extracted folder outside the Adobe CEP extensions directory.'
+        }
+        foreach ($oldDir in $existingFound) {
+            if ($sourceRoot.StartsWith($oldDir + '\', [StringComparison]::OrdinalIgnoreCase)) {
+                throw 'Run the installer from outside the installed PRONTO folder.'
+            }
         }
         if (-not (Test-IsProntoBundle $sourceRoot)) {
             throw 'Package manifest is missing or invalid. Please extract the complete PRONTO folder.'
@@ -106,6 +102,11 @@ try {
             Assert-NoReparsePoints $srcFile
         }
 
+        New-Item -ItemType Directory -Path $cepExtensionsRoot -Force | Out-Null
+        Assert-NoReparsePoints $cepExtensionsRoot
+        $stagingDir = [IO.Path]::GetFullPath((Join-Path $cepExtensionsRoot ('pronto-staging-' + [guid]::NewGuid().ToString('N'))))
+        New-Item -ItemType Directory -Path $stagingDir | Out-Null
+
         foreach ($relPath in $manifestFiles) {
             $srcFile = Join-Path $sourceRoot $relPath
             $dstFile = Join-Path $stagingDir $relPath
@@ -126,23 +127,16 @@ try {
         New-Item -ItemType Directory -Path $cepExtensionsRoot -Force | Out-Null
     }
 
-    $movedItems = @()
-    try {
-        foreach ($oldDir in $existingFound) {
-            $backupDest = Join-Path $sessionBackupDir ([IO.Path]::GetFileName($oldDir))
-            Move-Item -LiteralPath $oldDir -Destination $backupDest
-            $movedItems += @{ Original = $oldDir; Backup = $backupDest }
+    foreach ($oldDir in $existingFound) {
+        $resolvedOldDir = [IO.Path]::GetFullPath($oldDir)
+        if ([IO.Path]::GetDirectoryName($resolvedOldDir) -ne $cepExtensionsRoot -or -not (Test-IsProntoBundle $resolvedOldDir)) {
+            throw "Refusing to remove an unverified installation: $resolvedOldDir"
         }
-        if ($Action -eq 'Install') {
-            Move-Item -LiteralPath $stagingDir -Destination $targetInstallDir
-        }
-    } catch {
-        foreach ($entry in $movedItems) {
-            if (-not (Test-Path -LiteralPath $entry.Original) -and (Test-Path -LiteralPath $entry.Backup)) {
-                Move-Item -LiteralPath $entry.Backup -Destination $entry.Original
-            }
-        }
-        throw
+        Assert-NoReparsePoints $resolvedOldDir
+        Remove-Item -LiteralPath $resolvedOldDir -Recurse -Force
+    }
+    if ($Action -eq 'Install') {
+        Move-Item -LiteralPath $stagingDir -Destination $targetInstallDir
     }
 
     if ($Action -eq 'Install') {
@@ -152,11 +146,16 @@ try {
         Write-Host 'PRONTO uninstalled successfully.' -ForegroundColor Green
         Write-Host 'Your Premiere projects, media, and saved shortcuts were preserved.'
     }
-    if ($movedItems.Count -gt 0) {
-        Write-Host "Backup of previous version saved at: $sessionBackupDir"
-    }
     exit 0
 } catch {
     Write-Host ('PRONTO Setup Error: ' + $_.Exception.Message) -ForegroundColor Red
     exit 1
+} finally {
+    if ($stagingDir -and (Test-Path -LiteralPath $stagingDir)) {
+        $resolvedStage = [IO.Path]::GetFullPath($stagingDir)
+        if ([IO.Path]::GetDirectoryName($resolvedStage) -eq $cepExtensionsRoot -and [IO.Path]::GetFileName($resolvedStage) -match '^pronto-staging-[a-f0-9]{32}$') {
+            Assert-NoReparsePoints $resolvedStage
+            Remove-Item -LiteralPath $resolvedStage -Recurse -Force
+        }
+    }
 }

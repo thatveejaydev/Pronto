@@ -5,6 +5,14 @@
  */
 var ProntoHost = (function () {
     var TICKS_PER_SECOND = 254016000000;
+    var itemCache = {}, cacheProject = null, cacheRoot = null, cacheDocumentId = '';
+
+    function resetItemCache(proj) {
+        itemCache = {};
+        cacheProject = proj;
+        cacheRoot = proj ? proj.rootItem : null;
+        cacheDocumentId = proj ? String(proj.documentID) : '';
+    }
 
     function escapeString(str) {
         return '"' + String(str).replace(/[\\"\u0000-\u001f\u2028\u2029]/g, function (ch) {
@@ -52,7 +60,11 @@ var ProntoHost = (function () {
     function requireProject() {
         var proj = app ? app.project : null;
         if (!proj || !proj.rootItem || !proj.documentID) {
+            resetItemCache(null);
             throw new Error('No active Premiere Pro project found. Open a project first.');
+        }
+        if (cacheProject !== proj || cacheRoot !== proj.rootItem || cacheDocumentId !== String(proj.documentID)) {
+            resetItemCache(proj);
         }
         return proj;
     }
@@ -131,7 +143,7 @@ var ProntoHost = (function () {
             child = container.children[i];
             if (!child) { continue; }
             trail = parentTrail ? (parentTrail + ' / ' + String(child.name)) : String(child.name);
-            if (callback(child, parentTrail, trail) === false) { return false; }
+            if (callback(child, parentTrail, trail, container) === false) { return false; }
             if (isBinItem(child)) {
                 if (traverseTree(child, trail, callback) === false) { return false; }
             }
@@ -140,14 +152,30 @@ var ProntoHost = (function () {
     }
 
     function findItemByNodeId(root, nodeId) {
-        var matched = null;
-        traverseTree(root, '', function (item) {
-            if (String(item.nodeId) === String(nodeId)) {
-                matched = item;
-                return false;
-            }
+        var key = 'id_' + String(nodeId);
+        function isAttached(entry) {
+            if (!entry) { return false; }
+            try {
+                if (String(entry.item.nodeId) !== entry.id || entry.item.type === undefined) { return false; }
+                if (entry.parent !== root && !isAttached(itemCache['id_' + String(entry.parent.nodeId)])) { return false; }
+                var children = entry.parent.children;
+                for (var i = 0; children && i < children.numItems; i++) {
+                    if (String(children[i].nodeId) === entry.id) {
+                        entry.item = children[i];
+                        return true;
+                    }
+                }
+            } catch (ignoredStaleItem) {}
+            return false;
+        }
+        if (root === cacheRoot && isAttached(itemCache[key])) { return itemCache[key].item; }
+        // Refresh on a miss or stale reference, including moved and newly imported items.
+        itemCache = {};
+        traverseTree(root, '', function (item, folder, trail, parent) {
+            var id = String(item.nodeId);
+            itemCache['id_' + id] = { item: item, id: id, parent: parent };
         });
-        return matched;
+        return itemCache[key] ? itemCache[key].item : null;
     }
 
     function summarizeSequence(seq) {
@@ -177,7 +205,10 @@ var ProntoHost = (function () {
         try {
             var proj = requireProject();
             var catalog = [];
-            traverseTree(proj.rootItem, '', function (item, folderTrail, fullTrail) {
+            resetItemCache(proj);
+            traverseTree(proj.rootItem, '', function (item, folderTrail, fullTrail, parent) {
+                var id = String(item.nodeId);
+                itemCache['id_' + id] = { item: item, id: id, parent: parent };
                 var kind = detectCategory(item);
                 var isBin = kind === 'Bin';
                 var isSeq = kind === 'Sequence';
@@ -474,16 +505,30 @@ var ProntoHost = (function () {
         }
     }
 
-    function planPlacement(projectId, sequenceId, nodeId) {
+    function sourceMetadata(item, fresh) {
+        var entry = itemCache['id_' + String(item.nodeId)];
+        var now = new Date().getTime();
+        var signature = getSourceFilePath(item) + '|' + String(item.name) + '|' + String(item.type) + '|' + isSequenceProjectItem(item);
+        if (!fresh && entry && entry.metadata && entry.signature === signature && now - entry.metadataAt < 1000) {
+            return entry.metadata;
+        }
+        var category = detectCategory(item);
+        var metadata = { category: category, streams: resolveStreamRequirements(item, category) };
+        if (entry) { entry.metadata = metadata; entry.signature = signature; entry.metadataAt = now; }
+        return metadata;
+    }
+
+    function planPlacement(projectId, sequenceId, nodeId, resolvedItem, freshMetadata) {
             var proj = requireProject();
             if (String(proj.documentID) !== String(projectId)) {
                 throw new Error('Active project changed. Refresh before placing media.');
             }
-            var targetItem = findItemByNodeId(proj.rootItem, nodeId);
+            var targetItem = resolvedItem || findItemByNodeId(proj.rootItem, nodeId);
             if (!targetItem) {
                 throw new Error('Item was removed from the project. Refresh the search.');
             }
-            var category = detectCategory(targetItem);
+            var metadata = sourceMetadata(targetItem, freshMetadata);
+            var category = metadata.category;
             if (category === 'Bin') {
                 throw new Error('Bins cannot be placed on the timeline.');
             }
@@ -512,7 +557,7 @@ var ProntoHost = (function () {
             }
             var clipSpan = computeSpanSeconds(proj, targetItem, seq, category);
             var endSec = startSec + clipSpan;
-            var streams = resolveStreamRequirements(targetItem, category);
+            var streams = metadata.streams;
 
             var vTrack = streams.needsVideo ? locateFreeTrack(seq.videoTracks, 1, startSec, endSec) : -1;
             var aTrack = streams.needsAudio ? locateFreeTrack(seq.audioTracks, streams.audioWidth, startSec, endSec) : -1;
@@ -547,7 +592,8 @@ var ProntoHost = (function () {
             }
             var item = findItemByNodeId(proj.rootItem, nodeId);
             if (isBinItem(item)) { return selectInProjectPanel(projectId, nodeId); }
-            var plan = planPlacement(projectId, sequenceId, nodeId);
+            if (!item) { throw new Error('Item was removed from the project. Refresh the search.'); }
+            var plan = planPlacement(projectId, sequenceId, nodeId, item, true);
             var seq = plan.seq, targetItem = plan.targetItem, playhead = plan.playhead;
             var startSec = plan.startSec, streams = plan.streams, vTrack = plan.vTrack, aTrack = plan.aTrack;
             var beforeSnap = captureTimelineSnapshot(seq, vTrack, aTrack, streams.audioWidth);

@@ -4,3 +4,5 @@ dist/
 *.pfx
 *.key
 *.cer
+certificates/
+.tools/

@@ -89,7 +89,7 @@
         return countBoost + recencyBoost;
     }
 
-    function queryItems(items, rawQuery, compiled, options) {
+    function queryResults(items, rawQuery, compiled, options) {
         options = options || {};
         var list = items || [];
         compiled = compiled || compileIndex(list);
@@ -100,6 +100,7 @@
             : parsed.category;
         var tokens = parsed.tokens;
         var recentsMeta = options.recentsMeta || null;
+        var limit = typeof options.limit === 'number' && isFinite(options.limit) ? Math.max(0, Math.floor(options.limit)) : Infinity;
 
         if ((options.category === 'Recent' || options.showRecentsWhenEmpty) && tokens.length === 0 && !activeCategory) {
             var recentIds = options.recentIds || [];
@@ -113,14 +114,16 @@
                     outRecents.push(byId[recentIds[k]]);
                 }
             }
-            return outRecents;
+            return { items: outRecents.slice(0, limit), total: outRecents.length };
         }
 
         if (tokens.length === 0 && !activeCategory) {
-            return [];
+            return { items: [], total: 0 };
         }
 
         var matches = [];
+        var total = 0;
+        function compare(a, b) { return (b.score - a.score) || (a.index - b.index); }
         for (var i = 0; i < list.length; i++) {
             var item = list[i];
             if (activeCategory && item.kind !== activeCategory) {
@@ -141,26 +144,40 @@
             }
             if (totalScore !== -Infinity) {
                 totalScore += computeFrecencyBoost(item.id, recentsMeta);
-                matches.push({ item: item, score: totalScore, index: i });
+                total++;
+                var candidate = { item: item, score: totalScore, index: i };
+                if (limit === Infinity) { matches.push(candidate); }
+                else if (limit > 0 && (matches.length < limit || compare(candidate, matches[matches.length - 1]) < 0)) {
+                    var low = 0, high = matches.length;
+                    while (low < high) {
+                        var mid = Math.floor((low + high) / 2);
+                        if (compare(candidate, matches[mid]) < 0) { high = mid; } else { low = mid + 1; }
+                    }
+                    matches.splice(low, 0, candidate);
+                    if (matches.length > limit) { matches.pop(); }
+                }
             }
         }
 
-        matches.sort(function (a, b) {
-            return (b.score - a.score) || (a.index - b.index);
-        });
+        if (limit === Infinity) { matches.sort(compare); }
 
         var result = new Array(matches.length);
         for (var m = 0; m < matches.length; m++) {
             result[m] = matches[m].item;
         }
-        return result;
+        return { items: result, total: total };
+    }
+
+    function queryItems(items, rawQuery, compiled, options) {
+        return queryResults(items, rawQuery, compiled, options).items;
     }
 
     var api = {
         parseQueryTokens: parseQueryTokens,
         scoreToken: scoreToken,
         compileIndex: compileIndex,
-        queryItems: queryItems
+        queryItems: queryItems,
+        queryResults: queryResults
     };
 
     if (typeof module !== 'undefined' && module.exports) {

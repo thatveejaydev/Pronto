@@ -6,7 +6,9 @@
   "scripts": {
     "test": "node com.pronto.ppro/tests/run-tests.cjs",
     "validate:hotkey": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File com.pronto.ppro/hotkey-daemon.ps1 -ValidateOnly",
-    "package": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/package.ps1"
+    "package": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/package.ps1",
+    "certificate:create": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/create-signing-cert.ps1",
+    "sign:zxp": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/sign-zxp.ps1"
   },
   "engines": {
     "node": ">=20"

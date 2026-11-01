@@ -19,6 +19,122 @@ function check(title, fn) {
     console.log('PASS: ' + title);
 }
 
+function buildLauncherUI(saved = {}) {
+    const { EventEmitter } = require('node:events');
+    const storage = { ...saved }, nodes = {}, children = [], events = [];
+    for (const id of ['open-palette', 'launch-shortcut', 'btn-open-shortcut', 'btn-preview-shortcut', 'btn-auto-preview', 'open-shortcut-status', 'preview-shortcut-status']) {
+        nodes[id] = { textContent: '', hidden: false, checked: false, listeners: {},
+            addEventListener(type, fn) { this.listeners[type] = fn; } };
+    }
+    function spawn() {
+        const child = new EventEmitter();
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+        child.stdout.setEncoding = child.stderr.setEncoding = () => {};
+        child.stdin = new EventEmitter();
+        child.stdin.end = () => child.emit('exit');
+        children.push(child);
+        return child;
+    }
+    const ctx = vm.createContext({
+        document: { getElementById: id => nodes[id] },
+        localStorage: { getItem: k => storage[k] || null, setItem: (k, v) => { storage[k] = v; } },
+        ProntoKeys: keys,
+        window: { addEventListener() {}, cep_node: {
+            process: { platform: 'win32', pid: 123, env: {} },
+            require: name => name === 'path' ? path : { spawn }
+        }, __adobe_cep__: { getSystemPath: () => 'C:/PRONTO', dispatchEvent: ev => events.push(ev),
+            addEventListener() {}, evalScript() {}, requestOpenExtension() {} } }
+    });
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '../client/launcher.js'), 'utf8'), ctx);
+    return { nodes, storage, children, events, emit: token => children[children.length - 1].stdout.emit('data', token + '\n') };
+}
+
+check('Launcher checkbox restores, persists and broadcasts auto-preview settings', () => {
+    const ui = buildLauncherUI({ 'pronto.autoPreview': 'true' });
+    const checkbox = ui.nodes['btn-auto-preview'];
+    assert.equal(checkbox.checked, true);
+    checkbox.checked = false;
+    checkbox.listeners.change();
+    assert.equal(ui.storage['pronto.autoPreview'], 'false');
+    assert.equal(ui.events.filter(ev => ev.type === 'com.pronto.ppro.autoPreview').pop().data, 'false');
+    assert.equal(buildLauncherUI(ui.storage).nodes['btn-auto-preview'].checked, false);
+});
+
+check('Launcher shortcut labels track recording and disabling; only READY shows active status', () => {
+    const ui = buildLauncherUI({ 'pronto.openShortcut': JSON.stringify({ enabled: true, value: 'Alt+Q' }) });
+    const label = ui.nodes['launch-shortcut'], status = ui.nodes['open-shortcut-status'];
+    assert.equal(label.textContent, 'Alt+Q');
+    assert.equal(label.hidden, false);
+    ui.emit('STARTED');
+    assert.equal(status.className, 'shortcut-status');
+    ui.emit('READY');
+    assert.equal(status.className, 'shortcut-status is-active');
+    ui.emit('CONFLICT');
+    assert.equal(status.className, 'shortcut-status');
+    assert.match(status.textContent, /another app/);
+    ui.nodes['btn-open-shortcut'].listeners.click();
+    assert.equal(ui.nodes['btn-open-shortcut'].textContent, 'Press keys…');
+    ui.emit('LISTENING');
+    assert.match(status.textContent, /Listening/);
+    ui.emit('CAPTURE:1:69');
+    assert.equal(label.textContent, 'Alt+E');
+    ui.emit('STARTED');
+    ui.nodes['btn-open-shortcut'].listeners.contextmenu({ preventDefault() {} });
+    assert.equal(label.hidden, true);
+    ui.emit('STARTED');
+    assert.match(status.textContent, /disabled/);
+    assert.equal(status.className, 'shortcut-status');
+    ui.emit('READY');
+    ui.children[ui.children.length - 1].emit('exit');
+    assert.equal(status.className, 'shortcut-status');
+});
+
+check('Bounded search matches full ranking and preserves counts, ties, filters and recents', () => {
+    const items = Array.from({ length: 5000 }, (_, i) => ({ id: String(i),
+        name: ['Impact', 'Whoosh', 'Room tone'][i % 3] + ' ' + (i % 37),
+        path: 'SFX / ' + (i % 7), kind: i % 2 ? 'Audio' : 'Video' }));
+    const index = matcher.compileIndex(items);
+    for (const query of ['a:', 'impact', 'wh', 'room 2', 'no-match', '']) {
+        for (const options of [{}, { category: 'Video' }, { recentsMeta: { '4000': { count: 8, rank: 0 } } },
+            { category: 'Recent', recentIds: ['4000', '2', '99'] }]) {
+            const full = matcher.queryItems(items, query, index, options);
+            for (const limit of [0, 1, 100]) {
+                const page = matcher.queryResults(items, query, index, { ...options, limit });
+                assert.equal(page.total, full.length);
+                assert.deepEqual(page.items, full.slice(0, limit));
+            }
+        }
+    }
+});
+
+check('Source metadata is reused for previews while timing and insertion layout stay fresh', () => {
+    const env = buildHostEnv();
+    let mappingReads = 0, width = 1;
+    env.clipItem.getAudioChannelMapping = () => { mappingReads++; return { audioClipsNumber: width }; };
+    let preview = JSON.parse(env.host.previewPlacement('doc-1', 'seq-main', 'node-clip'));
+    assert.equal(preview.audio, 0);
+    assert.equal(mappingReads, 1);
+    env.clipItem.getOutPoint = () => ({ seconds: 8 });
+    env.activeSeq.getPlayerPosition = () => ({ seconds: 20, ticks: '5080320000000' });
+    preview = JSON.parse(env.host.previewPlacement('doc-1', 'seq-main', 'node-clip'));
+    assert.equal(mappingReads, 1);
+    assert.equal(preview.duration, 8);
+    assert.equal(preview.start, 20);
+    width = 0;
+    const placed = JSON.parse(env.host.placeItem('doc-1', 'seq-main', 'node-clip'));
+    assert.equal(placed.ok, true);
+    assert.equal(placed.audio, -1);
+    // Planner refresh plus the mock overwrite's own mapping read.
+    assert.equal(mappingReads, 3);
+    env.host.scanProject();
+    env.host.previewPlacement('doc-1', 'seq-main', 'node-clip');
+    assert.equal(mappingReads, 4);
+    env.clipItem.getMediaPath = () => 'C:/Media/Relinked.mov';
+    env.host.previewPlacement('doc-1', 'seq-main', 'node-clip');
+    assert.equal(mappingReads, 5);
+});
+
 // 1. Matcher & Prefix Filter Tests
 const sampleCatalog = [
     { id: '1', name: 'Whoosh Fast.wav', path: 'SFX / Transitions / Whoosh Fast.wav', kind: 'Audio' },
@@ -247,6 +363,27 @@ check('Placement preview handles audio-only, silent video, blocked space and sta
     assert.equal(env.edits.length, 0);
 });
 
+check('Item cache skips unrelated bins and refreshes removed, moved and switched-project references', () => {
+    const env = buildHostEnv();
+    let unrelatedReads = 0;
+    const other = { nodeId: 'other-bin', name: 'Other', type: 2,
+        get children() { unrelatedReads++; return env.toList([]); } };
+    env.project.rootItem.children = env.toList([env.folderItem, other]);
+    env.host.scanProject();
+    unrelatedReads = 0;
+    assert.equal(JSON.parse(env.host.previewPlacement('doc-1', 'seq-main', 'node-clip')).ok, true);
+    assert.equal(unrelatedReads, 0);
+    env.folderItem.children = env.toList([env.sfxItem]);
+    assert.equal(JSON.parse(env.host.previewPlacement('doc-1', 'seq-main', 'node-clip')).ok, false);
+    const moved = { nodeId: 'moved-bin', name: 'Moved', type: 2, children: env.toList([env.clipItem]) };
+    env.project.rootItem.children = env.toList([env.folderItem, moved]);
+    assert.equal(JSON.parse(env.host.previewPlacement('doc-1', 'seq-main', 'node-clip')).ok, true);
+    env.project.rootItem.children = env.toList([env.folderItem]);
+    assert.equal(JSON.parse(env.host.previewPlacement('doc-1', 'seq-main', 'node-clip')).ok, false);
+    env.ctx.app.project = { documentID: 'doc-2', name: 'New', rootItem: { children: env.toList([]) }, activeSequence: env.activeSeq };
+    assert.equal(JSON.parse(env.host.previewPlacement('doc-2', 'seq-main', 'node-clip')).ok, false);
+});
+
 check('Host scanProject extracts Premiere color labels, paths, and media categories', () => {
     const env = buildHostEnv();
     const res = JSON.parse(env.host.scanProject());
@@ -327,13 +464,15 @@ check('Host openItem supports timeline sequence switch, Source Monitor, and Proj
 });
 
 // 5. Palette UI Integration Tests
-function buildPaletteUI() {
+function buildPaletteUI(withPlacement = false) {
     const env = buildHostEnv();
     const domNodes = {};
     const pendingBridge = [];
     const cepListeners = {};
     const storage = {};
     const audioInstances = [];
+    const timers = new Map();
+    let timerId = 0;
 
     function FakeAudio() {
         this.paused = true;
@@ -362,6 +501,15 @@ function buildPaletteUI() {
                 this.children.push(child);
                 if (child.id) domNodes[child.id] = child;
             },
+            removeChild(child) {
+                this.children.splice(this.children.indexOf(child), 1);
+            },
+            insertBefore(child, reference) {
+                const existing = this.children.indexOf(child);
+                if (existing >= 0) this.children.splice(existing, 1);
+                const index = reference ? this.children.indexOf(reference) : this.children.length;
+                this.children.splice(index, 0, child);
+            },
             setAttribute(k, v) { this.attrs[k] = v; },
             getAttribute(k) { return this.attrs[k]; },
             removeAttribute(k) { delete this.attrs[k]; },
@@ -375,6 +523,11 @@ function buildPaletteUI() {
     for (const id of ['query', 'filter-bar', 'count', 'status', 'results', 'footer-hints', 'preview-kbd']) {
         domNodes[id] = makeNode('div', id);
     }
+    if (withPlacement) {
+        for (const id of ['placement', 'placement-state', 'placement-video', 'placement-audio', 'placement-time', 'placement-detail']) {
+            domNodes[id] = makeNode('span', id);
+        }
+    }
     for (const cat of ['All', 'Recent', 'Audio', 'Video', 'Image', 'Graphic', 'Sequence', 'Bin']) {
         const pill = makeNode('button', 'pill-' + cat);
         pill.setAttribute('data-category', cat);
@@ -383,7 +536,17 @@ function buildPaletteUI() {
 
     const documentListeners = {};
     const document = {
-        getElementById: id => domNodes[id],
+        getElementById: id => {
+            if (/^(result-|preview-\d|progress-)/.test(id)) {
+                function find(node) {
+                    if (node.id === id) return node;
+                    for (const child of node.children) { const match = find(child); if (match) return match; }
+                    return null;
+                }
+                return find(domNodes.results);
+            }
+            return domNodes[id];
+        },
         createElement: tag => makeNode(tag),
         addEventListener(k, fn) { documentListeners[k] = fn; }
     };
@@ -400,7 +563,12 @@ function buildPaletteUI() {
         ProntoMatcher: matcher,
         ProntoAudioPlayer: audioCtrl,
         Audio: FakeAudio,
-        setTimeout: fn => fn(),
+        setTimeout: (fn, delay) => {
+            if (!withPlacement || delay !== 150) { fn(); return; }
+            timers.set(++timerId, fn);
+            return timerId;
+        },
+        clearTimeout: id => timers.delete(id),
         window: {
             innerHeight: 60,
             setInterval: (fn, ms) => { registeredIntervals.push({ fn, ms }); },
@@ -421,8 +589,68 @@ function buildPaletteUI() {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../client/palette.js'), 'utf8'), uiCtx);
     pendingBridge.shift()();
 
-    return { env, domNodes, pendingBridge, cepListeners, storage, audioInstances, registeredIntervals, documentListeners };
+    return { env, domNodes, pendingBridge, cepListeners, storage, audioInstances, registeredIntervals, documentListeners,
+        flushPreviewTimers() { const pending = [...timers.values()]; timers.clear(); pending.forEach(fn => fn()); } };
 }
+
+check('Preview requests stay single-flight and coalesce to the latest selection across dismissal', () => {
+    const ui = buildPaletteUI(true);
+    function search(query) {
+        ui.domNodes.query.value = query;
+        ui.domNodes.query.listeners.input();
+        ui.flushPreviewTimers();
+    }
+    search('B-Roll');
+    assert.equal(ui.pendingBridge.length, 1);
+    search('Swoosh');
+    search('B-Roll');
+    search('Swoosh');
+    assert.equal(ui.pendingBridge.length, 1);
+    ui.pendingBridge.shift()();
+    assert.equal(ui.pendingBridge.length, 1);
+    assert.equal(ui.domNodes['placement-state'].textContent, 'Checking…');
+    ui.pendingBridge.shift()();
+    assert.equal(ui.domNodes['placement-video'].hidden, true);
+    assert.equal(ui.domNodes['placement-audio'].textContent, 'A1');
+    search('B-Roll');
+    search('Swoosh');
+    ui.domNodes.query.listeners.keydown({ key: 'Escape', preventDefault() {} });
+    ui.pendingBridge.shift()();
+    assert.equal(ui.pendingBridge.length, 0);
+    assert.equal(ui.domNodes.placement.hidden, true);
+});
+
+check('Palette reuses rows across filtering, updates metadata and keeps reordered audio actions correct', () => {
+    const ui = buildPaletteUI();
+    function search(value) { ui.domNodes.query.value = value; ui.domNodes.query.listeners.input(); }
+    search('01_Footage');
+    const original = [...ui.domNodes.results.children];
+    search('01_Footage');
+    original.forEach((row, i) => assert.equal(ui.domNodes.results.children[i], row));
+    const audioRow = original.find(row => row.children[1].children[1].textContent === 'Swoosh.wav');
+    assert.ok(audioRow);
+    search('Swoosh');
+    assert.equal(ui.domNodes.results.children.length, 1);
+    assert.equal(ui.domNodes.results.children[0], audioRow);
+    assert.equal(audioRow.id, 'result-0');
+    const play = audioRow.children.find(node => node.className === 'preview-button');
+    assert.equal(play.id, 'preview-0');
+    play.listeners.click({ preventDefault() {}, stopPropagation() {} });
+    ui.pendingBridge.shift()();
+    assert.match(ui.audioInstances[0].src, /Swoosh.wav$/);
+    assert.equal(ui.domNodes.results.children[0], audioRow);
+    ui.env.sfxItem.name = 'Swoosh updated.wav';
+    ui.env.sfxItem.isOffline = () => true;
+    ui.documentListeners.keydown({ key: 'r', ctrlKey: true, preventDefault() {} });
+    ui.pendingBridge.shift()();
+    assert.equal(ui.domNodes.results.children[0], audioRow);
+    assert.equal(audioRow.children[1].children[1].textContent, 'Swoosh updated.wav');
+    assert.match(audioRow.children[2].textContent, /OFFLINE/);
+    assert.equal(play.hidden, true);
+    search('no results');
+    assert.equal(ui.domNodes.results.children.length, 0);
+    assert.equal(ui.domNodes.query.attrs['aria-activedescendant'], undefined);
+});
 
 check('Tab applies each category in order, wraps, and Shift+Tab reverses without changing the query', () => {
     const ui = buildPaletteUI();

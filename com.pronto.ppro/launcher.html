@@ -8,10 +8,11 @@
   <link rel="stylesheet" href="client/theme.css">
 </head>
 <body class="launcher-shell">
-  <button id="open-palette" type="button" class="launch-btn">Search project</button>
+  <button id="open-palette" type="button" class="launch-btn"><span class="search-symbol" aria-hidden="true"></span><span>Search project</span><kbd id="launch-shortcut" hidden></kbd></button>
 
-  <fieldset class="settings-card">
-    <legend>Shortcuts &amp; Preview</legend>
+  <details class="launcher-section" open>
+    <summary>Shortcuts <span id="open-shortcut-status" class="shortcut-status" role="status" aria-live="polite"></span></summary>
+    <div class="section-content">
     <div class="setting-row">
       <label for="btn-open-shortcut">Open PRONTO:</label>
       <button id="btn-open-shortcut" type="button" class="shortcut-badge" title="Click to record shortcut. Right-click to disable.">disabled</button>
@@ -20,20 +21,24 @@
       <label for="btn-preview-shortcut">Audio preview:</label>
       <button id="btn-preview-shortcut" type="button" class="shortcut-badge" title="Click to record shortcut. Right-click to disable.">Ctrl+Space</button>
     </div>
-    <div class="setting-row">
-      <label for="btn-auto-preview">Auto audio preview:</label>
-      <button id="btn-auto-preview" type="button" class="shortcut-badge toggle-badge" aria-pressed="false" title="Automatically play audio when navigating results with arrow keys">Off</button>
+    <p class="launcher-helper">Click a shortcut to record · Right-click to disable.</p>
+    <p id="preview-shortcut-status" class="status-note" role="status" aria-live="polite"></p>
     </div>
-  </fieldset>
-
-  <p id="open-shortcut-status" class="status-note" role="status" aria-live="polite"></p>
-  <p id="preview-shortcut-status" class="status-note" role="status" aria-live="polite"></p>
+  </details>
+  <details class="launcher-section" open>
+    <summary>Audio</summary>
+    <div class="section-content">
+      <label class="auto-preview-label" for="btn-auto-preview"><input id="btn-auto-preview" type="checkbox">Auto-preview selected audio</label>
+      <p class="launcher-helper audio-description">Audition audio as you navigate search results</p>
+    </div>
+  </details>
 
   <details class="guide-dropdown">
-    <summary>Tips, Prefixes &amp; Usage Guide</summary>
+    <summary>Tips &amp; keyboard shortcuts</summary>
     <div class="guide-content">
       <h4>Search Prefixes</h4>
       <p>Type a prefix before your search terms to filter by media type:</p>
+      <p>Search matches item names and bin paths. Use multiple words to narrow results; partial and fuzzy matches are supported (for example, <code>a: swoosh</code>).</p>
       <ul>
         <li><code>a:</code> or <code>@audio</code> or <code>sfx:</code> — Audio files</li>
         <li><code>v:</code> or <code>@video</code> — Video clips</li>
@@ -46,7 +51,18 @@
       <h4>Quick Filter Pills &amp; Recent Items</h4>
       <ul>
         <li>Click any pill (<strong>All, Recent, Audio, Video, Image, Graphic, Seq, Bin</strong>) in the search window to filter results with one click. Click an active pill again to reset to <strong>All</strong>.</li>
+        <li><strong>Tab</strong> — Next filter. <strong>Shift+Tab</strong> — Previous filter. Filters wrap around, apply immediately, and keep your search text ready for typing.</li>
+        <li><strong>Up / Down Arrow</strong> — Select the previous or next result. <strong>Ctrl+F</strong> — Focus and select the search text.</li>
         <li>Press <strong>Down Arrow</strong> when the search box is empty (or click <strong>Recent</strong>) to browse your last 15 used items in the project.</li>
+        <li>Recent items are saved per project. Frequently used items get a ranking boost. Up to 100 matching results are shown.</li>
+      </ul>
+
+      <h4>Placement Preview</h4>
+      <ul>
+        <li>The slim row below the search field previews placement for the selected result. <strong>Checking…</strong> means the destination is being calculated; <strong>SAFE</strong> means a collision-free destination was found; <strong>BLOCKED</strong> explains why placement is unavailable.</li>
+        <li>Blue <strong>V</strong> badges show video destinations; teal <strong>A</strong> badges show audio destinations. An audio range spans multiple tracks; <strong>A3+</strong>, for example, means the audio track count is unknown and space from A3 upward is checked conservatively.</li>
+        <li>The row also shows the start time and clip duration. Hover over it for the full status message. Bins do not show a placement preview.</li>
+        <li>Placement is checked again when you insert. The preview is an estimate of available space, not a reservation. Open a timeline and relink offline media before inserting; if no gap is available, add an empty destination track.</li>
       </ul>
 
       <h4>Result Actions</h4>
@@ -62,11 +78,23 @@
       <h4>Shortcuts &amp; Audio Preview</h4>
       <ul>
         <li>Click <strong>Open PRONTO</strong> or <strong>Audio preview</strong> above and press your key combination (e.g. <code>Alt+Space</code>). Press <code>Esc</code> to cancel, or right-click a badge to disable it.</li>
-        <li>Enable <strong>Auto audio preview</strong> above to automatically audition sound effects as you arrow up and down through results.</li>
+        <li>Enable <strong>Auto-preview selected audio</strong> above to audition audio as you type or navigate results.</li>
+        <li>Use the configured <strong>Audio preview</strong> shortcut or the result's play button to play/pause audio. Moving to another result or leaving the search window stops playback.</li>
         <li>Trimmed audio clips preview starting from their Premiere <strong>In point</strong> and stop at their <strong>Out point</strong>.</li>
+        <li>If a format cannot be previewed, press <strong>Shift+Enter</strong> to audition it in Premiere's Source Monitor.</li>
+        <li>The Open PRONTO shortcut works while Premiere is in the foreground. The blue <strong>Active in Premiere</strong> indicator means the shortcut helper reported it ready.</li>
+        <li>Click the <strong>Shortcuts</strong> or <strong>Audio</strong> heading to collapse its settings. Reopen this guide whenever you need the full keyboard reference.</li>
       </ul>
     </div>
   </details>
+
+  <footer class="launcher-credit">
+    <div class="launcher-credit-links">
+      <span>Created by Vee Jay</span>
+      <a id="github-star" href="https://github.com/thatveejaydev/Pronto" target="_blank" rel="noopener noreferrer" title="Open PRONTO on GitHub to give it a star">☆ Star on GitHub</a>
+    </div>
+    <span class="launcher-version" aria-label="PRONTO version 0.1.0">v0.1.0</span>
+  </footer>
 
   <script src="client/keybinding.js"></script>
   <script src="client/launcher.js"></script>

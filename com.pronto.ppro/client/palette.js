@@ -21,11 +21,29 @@
     var lastWindowHeight = 0;
     var placementGeneration = 0;
     var placementTimer = null;
+    var placementInFlight = false;
+    var pendingPlacement = null;
+    var renderedRows = {};
+    var renderedProject = null;
+
+    function dispatchPlacementPreview() {
+        if (placementInFlight || !pendingPlacement) { return; }
+        var request = pendingPlacement;
+        pendingPlacement = null;
+        if (request.generation !== placementGeneration || document.hidden) { return; }
+        placementInFlight = true;
+        invokeHost('previewPlacement', request.args, function (err, info) {
+            placementInFlight = false;
+            request.display(err, info);
+            dispatchPlacementPreview();
+        });
+    }
 
     function schedulePlacementPreview() {
         var strip = byId('placement');
         if (!strip) { return; }
         var generation = ++placementGeneration;
+        pendingPlacement = null;
         clearTimeout(placementTimer);
         var item = visibleMatches[activeIndex];
         strip.hidden = !isExpandedState() || !item || item.kind === 'Bin';
@@ -59,7 +77,9 @@
                     ' · ' + info.duration.toFixed(1) + ' sec';
             }
             if (!sequence) { display(new Error('Open a timeline sequence.')); return; }
-            invokeHost('previewPlacement', [catalogData.project, sequence.id, item.id], display);
+            pendingPlacement = { generation: generation,
+                args: [catalogData.project, sequence.id, item.id], display: display };
+            dispatchPlacementPreview();
         }, 150);
     }
 
@@ -263,7 +283,9 @@
         } else if (expanded) {
             var rows = Math.min(Math.max(visibleMatches.length, 1), 7);
             var placement = byId('placement');
-            targetHeight = 148 + (rows * 52) + (hasError ? 42 : 0) + (placement && !placement.hidden ? 28 : 0);
+            var footer = byId('footer-hints');
+            var extraFooterHeight = footer && !footer.hidden ? Math.max(0, (footer.offsetHeight || 24) - 24) : 0;
+            targetHeight = 148 + (rows * 52) + (hasError ? 42 : 0) + (placement && !placement.hidden ? 28 : 0) + extraFooterHeight;
         }
         if (targetHeight === lastWindowHeight && Math.abs(window.innerHeight - targetHeight) < 3) {
             return;
@@ -291,7 +313,13 @@
     function renderResults() {
         var list = byId('results');
         var expanded = isExpandedState();
-        list.textContent = '';
+        var project = catalogData ? catalogData.project : null;
+        if (project !== renderedProject) {
+            list.textContent = '';
+            renderedRows = {};
+            renderedProject = project;
+        }
+        var nextRows = {};
         list.hidden = !expanded || visibleMatches.length === 0;
         byId('count').hidden = !expanded;
         if (byId('filter-bar')) { byId('filter-bar').hidden = !expanded; }
@@ -308,6 +336,13 @@
         };
 
         visibleMatches.forEach(function (item, idx) {
+            var key = 'item_' + item.id;
+            var row = renderedRows[key];
+            if (row) {
+                row.update(item, idx);
+                nextRows[key] = row;
+                return;
+            }
             var li = document.createElement('li');
             var icon = document.createElement('span');
             var titleWrap = document.createElement('div');
@@ -318,13 +353,10 @@
             icon.setAttribute('aria-hidden', 'true');
 
             titleWrap.className = 'result-title-row';
-            if (typeof item.color === 'number' && item.color >= 0 && item.color <= 15) {
-                var dot = document.createElement('span');
-                dot.className = 'label-dot';
-                dot.style.background = 'var(--label-' + item.color + ')';
-                dot.setAttribute('aria-hidden', 'true');
-                titleWrap.appendChild(dot);
-            }
+            var dot = document.createElement('span');
+            dot.className = 'label-dot';
+            dot.setAttribute('aria-hidden', 'true');
+            titleWrap.appendChild(dot);
             title.textContent = item.name;
             titleWrap.appendChild(title);
 
@@ -340,7 +372,7 @@
             li.appendChild(titleWrap);
             li.appendChild(detail);
 
-            if (item.kind === 'Audio' && !item.offline) {
+            {
                 var playBtn = document.createElement('button');
                 playBtn.id = 'preview-' + idx;
                 playBtn.className = 'preview-button';
@@ -382,8 +414,44 @@
                 }
             });
 
-            list.appendChild(li);
+            row = { element: li, update: function (nextItem, nextIndex) {
+                // Event handlers close over these variables, so reused rows always act on the current result.
+                item = nextItem;
+                idx = nextIndex;
+                li.id = 'result-' + idx;
+                li.setAttribute('aria-selected', String(idx === activeIndex));
+                li.title = item.path;
+                icon.className = 'result-icon ' + (iconMap[item.kind] || 'media') + '-icon';
+                if (title.textContent !== item.name) { title.textContent = item.name; }
+                var description = item.kind + (item.offline ? ' · OFFLINE' : '') + ' · ' + item.path;
+                if (detail.textContent !== description) { detail.textContent = description; }
+                dot.hidden = !(typeof item.color === 'number' && item.color >= 0 && item.color <= 15);
+                dot.style.background = dot.hidden ? '' : 'var(--label-' + item.color + ')';
+                playBtn.id = 'preview-' + idx;
+                playBtn.hidden = item.kind !== 'Audio' || item.offline;
+                var playing = previewItemId === item.id && (previewPlayState === 'playing' || previewPlayState === 'loading');
+                playBtn.textContent = playing ? (previewPlayState === 'loading' ? '…' : 'Ⅱ') : '▶';
+                playBtn.setAttribute('aria-pressed', String(playing));
+                playBtn.setAttribute('aria-label', (playing ? 'Pause ' : 'Preview ') + item.name);
+                playBtn.title = 'Preview audio' + (previewKeyConfig ? ' (' + previewKeyConfig.label + ')' : '');
+                progress.id = 'progress-' + idx;
+                var active = !playBtn.hidden && previewItemId === item.id && previewPlayState !== 'stopped';
+                progress.hidden = !active;
+                progress.style.width = active ? Math.round(previewProgress * 100) + '%' : '0%';
+            } };
+            row.update(item, idx);
+            nextRows[key] = row;
         });
+
+        Object.keys(renderedRows).forEach(function (key) {
+            if (!nextRows[key]) { list.removeChild(renderedRows[key].element); }
+        });
+        // Move only rows whose position changed; unchanged results keep their DOM and scroll position.
+        visibleMatches.forEach(function (item, idx) {
+            var element = nextRows['item_' + item.id].element;
+            if (list.children[idx] !== element) { list.insertBefore(element, list.children[idx] || null); }
+        });
+        renderedRows = nextRows;
 
         if (visibleMatches.length > 0) {
             byId('query').setAttribute('aria-activedescendant', 'result-' + activeIndex);
@@ -422,15 +490,17 @@
         var recents = catalogData ? loadRecents(catalogData.project) : { ids: [], meta: {} };
 
         var allFiltered = (expanded && catalogData)
-            ? ProntoMatcher.queryItems(catalogData.items, rawQuery, compiledCatalog, {
+            ? ProntoMatcher.queryResults(catalogData.items, rawQuery, compiledCatalog, {
+                limit: 100,
                 category: activeCategory,
                 showRecentsWhenEmpty: browseRecentsOnEmpty,
                 recentIds: recents.ids,
                 recentsMeta: recents.meta
             })
-            : [];
+            : { items: [], total: 0 };
 
-        visibleMatches = allFiltered.slice(0, 100);
+        visibleMatches = allFiltered.items;
+        var matchCount = allFiltered.total;
         activeIndex = 0;
 
         if (prevSelectedId) {
@@ -449,10 +519,10 @@
         if (isScanning && !catalogData) {
             countText = 'Scanning project…';
         } else if (activeCategory === 'Recent' || (browseRecentsOnEmpty && !rawQuery.trim())) {
-            countText = allFiltered.length ? ('Recent items (' + allFiltered.length + ')') : 'No recent items in this project yet';
-        } else if (allFiltered.length > 0) {
-            countText = allFiltered.length + (allFiltered.length === 1 ? ' match' : ' matches') +
-                        (allFiltered.length > 100 ? ' · showing top 100' : '');
+            countText = matchCount ? ('Recent items (' + matchCount + ')') : 'No recent items in this project yet';
+        } else if (matchCount > 0) {
+            countText = matchCount + (matchCount === 1 ? ' match' : ' matches') +
+                        (matchCount > 100 ? ' · showing top 100' : '');
         } else {
             countText = 'No matches';
         }

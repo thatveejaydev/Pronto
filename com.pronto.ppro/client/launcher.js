@@ -20,8 +20,20 @@
     var btnAutoPreview = document.getElementById('btn-auto-preview');
     var openStatusEl = document.getElementById('open-shortcut-status');
     var previewStatusEl = document.getElementById('preview-shortcut-status');
+    var githubStar = document.getElementById('github-star');
+    if (githubStar) {
+        githubStar.addEventListener('click', function (ev) {
+            if (window.cep && window.cep.util && window.cep.util.openURLInDefaultBrowser) {
+                ev.preventDefault();
+                window.cep.util.openURLInDefaultBrowser('https://github.com/thatveejaydev/Pronto');
+            }
+        });
+    }
 
-    function setOpenStatus(msg) { openStatusEl.textContent = msg || ''; }
+    function setOpenStatus(msg, active) {
+        openStatusEl.textContent = msg || '';
+        openStatusEl.className = 'shortcut-status' + (active ? ' is-active' : '');
+    }
     function setPreviewStatus(msg) { previewStatusEl.textContent = msg || ''; }
 
     function readOpenConfig() {
@@ -87,6 +99,9 @@
         var openCfg = readOpenConfig();
         var previewLabel = readPreviewLabel();
         var autoOn = readAutoPreview();
+        var launchShortcut = document.getElementById('launch-shortcut');
+        launchShortcut.textContent = openCfg ? openCfg.label : '';
+        launchShortcut.hidden = !openCfg;
 
         btnOpenShortcut.textContent = (activeRecordTarget === 'open')
             ? 'Press keys…'
@@ -99,8 +114,7 @@
         btnPreviewShortcut.disabled = isTransitioning && activeRecordTarget !== 'preview';
 
         if (btnAutoPreview) {
-            btnAutoPreview.textContent = autoOn ? 'On' : 'Off';
-            btnAutoPreview.setAttribute('aria-pressed', String(autoOn));
+            btnAutoPreview.checked = autoOn;
         }
     }
 
@@ -187,9 +201,9 @@
                     } else if (line === 'STARTED') {
                         isTransitioning = false;
                         updateBadgeUI();
-                        setOpenStatus(openCfg.key ? (openCfg.label + ' enabled. Focus Premiere to use it.') : '');
+                        setOpenStatus(openCfg.key ? (openCfg.label + ' enabled. Focus Premiere to use it.') : 'Open shortcut disabled.');
                     } else if (line === 'READY') {
-                        setOpenStatus(openCfg.label + ' active in Premiere.');
+                        setOpenStatus('Active in Premiere', true);
                     } else if (line === 'CONFLICT') {
                         isTransitioning = false;
                         updateBadgeUI();
@@ -218,7 +232,7 @@
                     activeRecordTarget = null;
                     isTransitioning = false;
                     updateBadgeUI();
-                    if (errBuffer) { setOpenStatus('Shortcut helper exited: ' + errBuffer); }
+                    setOpenStatus(errBuffer ? 'Shortcut helper exited: ' + errBuffer : 'Shortcut helper stopped.');
                 }
             });
 
@@ -233,6 +247,7 @@
 
     function restartNormalDaemon() {
         isTransitioning = true;
+        setOpenStatus('Starting shortcut helper…');
         updateBadgeUI();
         stopDaemon(function () {
             startDaemon(false);
@@ -323,8 +338,8 @@
     });
 
     if (btnAutoPreview) {
-        btnAutoPreview.addEventListener('click', function () {
-            var nextState = !readAutoPreview();
+        btnAutoPreview.addEventListener('change', function () {
+            var nextState = btnAutoPreview.checked;
             try {
                 localStorage.setItem(AUTO_PREVIEW_KEY, String(nextState));
             } catch (ignored) {}

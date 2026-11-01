@@ -13,7 +13,7 @@ All notable changes to PRONTO are documented here. This project follows [Semanti
 - Source Monitor, sequence-opening, and Project panel reveal actions.
 - Trim-aware audio preview with optional automatic preview.
 - Premiere label colors and Windows application-scoped shortcuts.
-- Backup-and-rollback installer and uninstall workflow.
+- Installer and uninstall workflow that removes previous installations without creating backups.
 - Automated host, search, UI, keyboard, and audio-preview tests.
 - Restrictive Content Security Policies for both extension surfaces.
 
