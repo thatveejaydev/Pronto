@@ -11,6 +11,13 @@
   <div class="search-header">
     <input id="query" type="search" aria-label="Search project media" autocomplete="off" autofocus role="combobox" aria-controls="results" aria-expanded="false" aria-autocomplete="list">
   </div>
+  <div id="placement" class="placement-strip" role="status" aria-live="polite" hidden>
+    <span id="placement-state" class="placement-state"></span>
+    <span id="placement-video" class="placement-track video-track" hidden></span>
+    <span id="placement-audio" class="placement-track audio-track" hidden></span>
+    <span id="placement-time"></span>
+    <span id="placement-detail" class="placement-detail"></span>
+  </div>
   <div id="filter-bar" class="filter-bar" role="toolbar" aria-label="Media category filters" hidden>
     <button type="button" class="filter-pill" data-category="All" aria-pressed="true">All</button>
     <button type="button" class="filter-pill" data-category="Recent" aria-pressed="false">Recent</button>

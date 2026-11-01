@@ -19,6 +19,49 @@
     var lastScannedAt = 0;
     var sessionGen = 0;
     var lastWindowHeight = 0;
+    var placementGeneration = 0;
+    var placementTimer = null;
+
+    function schedulePlacementPreview() {
+        var strip = byId('placement');
+        if (!strip) { return; }
+        var generation = ++placementGeneration;
+        clearTimeout(placementTimer);
+        var item = visibleMatches[activeIndex];
+        strip.hidden = !isExpandedState() || !item || item.kind === 'Bin';
+        if (strip.hidden) { adjustWindowSize(); return; }
+        byId('placement-video').hidden = true;
+        byId('placement-audio').hidden = true;
+        byId('placement-time').textContent = '';
+        byId('placement-detail').textContent = '';
+        strip.className = 'placement-strip';
+        byId('placement-state').textContent = 'Checking…';
+        adjustWindowSize();
+        placementTimer = setTimeout(function () {
+            if (generation !== placementGeneration || document.hidden) { return; }
+            if (isPinging || isScanning) { schedulePlacementPreview(); return; }
+            var sequence = catalogData && catalogData.sequence;
+            function display(err, info) {
+                if (generation !== placementGeneration) { return; }
+                strip.className = 'placement-strip' + (err ? ' blocked' : ' safe');
+                byId('placement-state').textContent = err ? '● BLOCKED' : '● SAFE';
+                strip.title = err ? err.message : 'Placement is checked again when you press Enter.';
+                byId('placement-detail').textContent = err ? err.message :
+                    (info.video >= 0 && info.audio >= 0 ? 'Video + audio' : 'First free track');
+                if (err) { return; }
+                var video = byId('placement-video'), audio = byId('placement-audio');
+                video.hidden = info.video < 0;
+                audio.hidden = info.audio < 0;
+                video.textContent = 'V' + (info.video + 1);
+                audio.textContent = 'A' + (info.audio + 1) +
+                    (info.audioWidth > 1 ? '–A' + (info.audio + info.audioWidth) : (info.audioWidth === null ? '+' : ''));
+                byId('placement-time').textContent = (info.timecode || (info.start.toFixed(2) + ' s')) +
+                    ' · ' + info.duration.toFixed(1) + ' sec';
+            }
+            if (!sequence) { display(new Error('Open a timeline sequence.')); return; }
+            invokeHost('previewPlacement', [catalogData.project, sequence.id, item.id], display);
+        }, 150);
+    }
 
     var activeCategory = 'All';
     var browseRecentsOnEmpty = false;
@@ -219,7 +262,8 @@
             targetHeight = 165;
         } else if (expanded) {
             var rows = Math.min(Math.max(visibleMatches.length, 1), 7);
-            targetHeight = 148 + (rows * 52) + (hasError ? 42 : 0);
+            var placement = byId('placement');
+            targetHeight = 148 + (rows * 52) + (hasError ? 42 : 0) + (placement && !placement.hidden ? 28 : 0);
         }
         if (targetHeight === lastWindowHeight && Math.abs(window.innerHeight - targetHeight) < 3) {
             return;
@@ -346,6 +390,7 @@
         } else {
             byId('query').removeAttribute('aria-activedescendant');
         }
+        schedulePlacementPreview();
         adjustWindowSize();
     }
 
@@ -356,6 +401,7 @@
         var prevEl = byId('result-' + activeIndex);
         if (prevEl) { prevEl.setAttribute('aria-selected', 'false'); }
         activeIndex = nextIndex;
+        schedulePlacementPreview();
         var nextEl = byId('result-' + activeIndex);
         if (nextEl) {
             nextEl.setAttribute('aria-selected', 'true');
@@ -484,6 +530,7 @@
             if (catalogData) {
                 catalogData.sequence = stateInfo.sequence;
             }
+            schedulePlacementPreview();
             if (queuedAction) {
                 var pendingFn = queuedAction;
                 queuedAction = null;
@@ -622,26 +669,43 @@
         }
     });
 
+    function applyCategory(category) {
+        activeCategory = category;
+        browseRecentsOnEmpty = activeCategory === 'Recent';
+        showStatus('', false);
+        runFilter(false);
+        if (isExpandedState() && !catalogData && !isScanning) {
+            scanCatalog(false);
+        }
+        byId('query').focus();
+    }
+
     if (byId('filter-bar') && byId('filter-bar').children) {
         var pills = byId('filter-bar').children;
         for (var p = 0; p < pills.length; p++) {
             (function (pillBtn) {
                 pillBtn.addEventListener('click', function () {
                     var chosen = pillBtn.getAttribute('data-category') || 'All';
-                    activeCategory = (activeCategory === chosen && chosen !== 'All') ? 'All' : chosen;
-                    browseRecentsOnEmpty = activeCategory === 'Recent';
-                    showStatus('', false);
-                    runFilter(false);
-                    if (isExpandedState() && !catalogData && !isScanning) {
-                        scanCatalog(false);
-                    }
-                    byId('query').focus();
+                    applyCategory((activeCategory === chosen && chosen !== 'All') ? 'All' : chosen);
                 });
             }(pills[p]));
         }
     }
 
     document.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Tab' && !ev.ctrlKey && !ev.altKey && !ev.metaKey && !ev.isComposing && ev.keyCode !== 229) {
+            var bar = byId('filter-bar');
+            if (!bar || !bar.children.length || isActionBusy) { return; }
+            ev.preventDefault();
+            var current = 0;
+            for (var i = 0; i < bar.children.length; i++) {
+                if (bar.children[i].getAttribute('data-category') === activeCategory) { current = i; break; }
+            }
+            var next = (current + (ev.shiftKey ? -1 : 1) + bar.children.length) % bar.children.length;
+            applyCategory(bar.children[next].getAttribute('data-category'));
+            if (bar.children[next].scrollIntoView) { bar.children[next].scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
+            return;
+        }
         if ((ev.ctrlKey || ev.metaKey) && ev.key && ev.key.toLowerCase() === 'f') {
             ev.preventDefault();
             byId('query').focus();

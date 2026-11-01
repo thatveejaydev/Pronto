@@ -474,8 +474,7 @@ var ProntoHost = (function () {
         }
     }
 
-    function placeItem(projectId, sequenceId, nodeId) {
-        try {
+    function planPlacement(projectId, sequenceId, nodeId) {
             var proj = requireProject();
             if (String(proj.documentID) !== String(projectId)) {
                 throw new Error('Active project changed. Refresh before placing media.');
@@ -486,7 +485,7 @@ var ProntoHost = (function () {
             }
             var category = detectCategory(targetItem);
             if (category === 'Bin') {
-                return selectInProjectPanel(projectId, nodeId);
+                throw new Error('Bins cannot be placed on the timeline.');
             }
             var seq = proj.activeSequence;
             if (!seq) {
@@ -523,6 +522,34 @@ var ProntoHost = (function () {
                 throw new Error('No free track space for the full clip duration. Add an empty ' + neededKind + ' track and retry.');
             }
 
+            return { seq: seq, targetItem: targetItem, playhead: playhead, startSec: startSec,
+                clipSpan: clipSpan, streams: streams, vTrack: vTrack, aTrack: aTrack };
+    }
+
+    function previewPlacement(projectId, sequenceId, nodeId) {
+        try {
+            var plan = planPlacement(projectId, sequenceId, nodeId);
+            var timecode = '';
+            try {
+                timecode = plan.playhead.getFormatted(plan.seq.getSettings().videoFrameRate, plan.seq.videoDisplayFormat);
+            } catch (ignoredFormat) {}
+            return okResponse({ video: plan.vTrack, audio: plan.aTrack,
+                audioWidth: plan.streams.audioWidth, start: plan.startSec,
+                timecode: timecode, duration: plan.clipSpan });
+        } catch (e) { return errResponse(e); }
+    }
+
+    function placeItem(projectId, sequenceId, nodeId) {
+        try {
+            var proj = requireProject();
+            if (String(proj.documentID) !== String(projectId)) {
+                throw new Error('Active project changed. Refresh before placing media.');
+            }
+            var item = findItemByNodeId(proj.rootItem, nodeId);
+            if (isBinItem(item)) { return selectInProjectPanel(projectId, nodeId); }
+            var plan = planPlacement(projectId, sequenceId, nodeId);
+            var seq = plan.seq, targetItem = plan.targetItem, playhead = plan.playhead;
+            var startSec = plan.startSec, streams = plan.streams, vTrack = plan.vTrack, aTrack = plan.aTrack;
             var beforeSnap = captureTimelineSnapshot(seq, vTrack, aTrack, streams.audioWidth);
             seq.overwriteClip(targetItem, playhead, streams.needsVideo ? vTrack : 0, streams.needsAudio ? aTrack : 0);
             var halfFrameTolerance = (Number(seq.timebase) / TICKS_PER_SECOND) / 2;
@@ -629,6 +656,7 @@ var ProntoHost = (function () {
         ping: ping,
         scanProject: scanProject,
         placeItem: placeItem,
+        previewPlacement: previewPlacement,
         openItem: openItem,
         selectInProjectPanel: selectInProjectPanel,
         resolveAudio: resolveAudio

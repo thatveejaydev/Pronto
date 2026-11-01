@@ -214,6 +214,39 @@ function buildHostEnv() {
     return { host: ctx.ProntoHost, project, activeSeq, clipItem, sfxItem, folderItem, edits, makeTrack, toList, ctx };
 }
 
+check('Placement preview is read-only and agrees with video/audio insertion destinations', () => {
+    const env = buildHostEnv();
+    env.activeSeq.videoTracks = Object.assign([env.makeTrack([[0, 100]]), env.makeTrack()], { numTracks: 2 });
+    env.activeSeq.audioTracks = Object.assign([env.makeTrack([[0, 100]]), env.makeTrack([[0, 100]]), env.makeTrack()], { numTracks: 3 });
+    const preview = JSON.parse(env.host.previewPlacement('doc-1', 'seq-main', 'node-clip'));
+    assert.equal(preview.ok, true);
+    assert.equal(preview.video, 1);
+    assert.equal(preview.audio, 2);
+    assert.equal(preview.start, 10);
+    assert.equal(preview.duration, 4);
+    assert.equal(env.edits.length, 0);
+    const placed = JSON.parse(env.host.placeItem('doc-1', 'seq-main', 'node-clip'));
+    assert.equal(placed.ok, true);
+    assert.equal(placed.video, preview.video);
+    assert.equal(placed.audio, preview.audio);
+});
+
+check('Placement preview handles audio-only, silent video, blocked space and stale context without editing', () => {
+    const env = buildHostEnv();
+    const audio = JSON.parse(env.host.previewPlacement('doc-1', 'seq-main', 'node-sfx'));
+    assert.equal(audio.video, -1);
+    assert.equal(audio.audio, 0);
+    env.clipItem.getAudioChannelMapping = () => ({ audioClipsNumber: 0 });
+    const silent = JSON.parse(env.host.previewPlacement('doc-1', 'seq-main', 'node-clip'));
+    assert.equal(silent.video, 0);
+    assert.equal(silent.audio, -1);
+    env.activeSeq.videoTracks = Object.assign([env.makeTrack([[0, 100]])], { numTracks: 1 });
+    assert.equal(JSON.parse(env.host.previewPlacement('doc-1', 'seq-main', 'node-clip')).ok, false);
+    assert.equal(JSON.parse(env.host.previewPlacement('other', 'seq-main', 'node-clip')).ok, false);
+    assert.equal(JSON.parse(env.host.previewPlacement('doc-1', 'other', 'node-clip')).ok, false);
+    assert.equal(env.edits.length, 0);
+});
+
 check('Host scanProject extracts Premiere color labels, paths, and media categories', () => {
     const env = buildHostEnv();
     const res = JSON.parse(env.host.scanProject());
@@ -348,10 +381,11 @@ function buildPaletteUI() {
         domNodes['filter-bar'].appendChild(pill);
     }
 
+    const documentListeners = {};
     const document = {
         getElementById: id => domNodes[id],
         createElement: tag => makeNode(tag),
-        addEventListener() {}
+        addEventListener(k, fn) { documentListeners[k] = fn; }
     };
 
     const registeredIntervals = [];
@@ -387,8 +421,27 @@ function buildPaletteUI() {
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../client/palette.js'), 'utf8'), uiCtx);
     pendingBridge.shift()();
 
-    return { env, domNodes, pendingBridge, cepListeners, storage, audioInstances, registeredIntervals };
+    return { env, domNodes, pendingBridge, cepListeners, storage, audioInstances, registeredIntervals, documentListeners };
 }
+
+check('Tab applies each category in order, wraps, and Shift+Tab reverses without changing the query', () => {
+    const ui = buildPaletteUI();
+    ui.domNodes.query.value = 'Swoosh';
+    ui.domNodes.query.listeners.input();
+    const selected = () => ui.domNodes['filter-bar'].children.find(p => p.attrs['aria-pressed'] === 'true').getAttribute('data-category');
+    let prevented = 0;
+    const tab = shiftKey => ui.documentListeners.keydown({ key: 'Tab', shiftKey, preventDefault() { prevented++; } });
+    for (const category of ['Recent', 'Audio', 'Video', 'Image', 'Graphic', 'Sequence', 'Bin', 'All']) {
+        tab(false);
+        assert.equal(selected(), category);
+    }
+    tab(true);
+    assert.equal(selected(), 'Bin');
+    assert.equal(ui.domNodes.query.value, 'Swoosh');
+    assert.equal(prevented, 9);
+    ui.documentListeners.keydown({ key: 'Tab', ctrlKey: true, preventDefault() { throw new Error('Modified Tab intercepted'); } });
+    assert.equal(selected(), 'Bin');
+});
 
 check('Palette renders label color dots, filter pills, and immediately closes window on Enter before host finishes', () => {
     const ui = buildPaletteUI();

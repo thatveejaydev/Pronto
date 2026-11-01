@@ -247,6 +247,27 @@ p {
   appearance: none;
 }
 
+.placement-strip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 12px;
+  flex-shrink: 0;
+  border-top: 1px solid #303030;
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  color: #bdbdbd;
+}
+.placement-state { color: var(--muted); flex-shrink: 0; }
+.safe .placement-state { color: #7ed59b; }
+.blocked .placement-state { color: var(--danger); }
+.placement-track { padding: 1px 5px; border-radius: 2px; color: #e5f0ff; }
+.video-track { background: #28537c; }
+.audio-track { background: #256752; }
+.placement-detail { margin-left: auto; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+
 .filter-bar {
   display: flex;
   align-items: center;
