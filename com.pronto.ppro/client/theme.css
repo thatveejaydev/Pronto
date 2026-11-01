@@ -408,6 +408,8 @@ p {
   height: 7px;
   border-radius: 50%;
   flex-shrink: 0;
+  /* Center against Segoe UI's visible glyphs rather than its line box. */
+  transform: translateY(1px);
 }
 
 .results-list strong {

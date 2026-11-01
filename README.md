@@ -1,17 +1,22 @@
+<div align="center">
+
 # PRONTO
 
 ![Release v0.1.0](https://img.shields.io/badge/release-v0.1.0-orange)
 ![Platform Windows 10 and 11](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D4?logo=windows&logoColor=white)
 ![Adobe Premiere Pro 2024+](https://img.shields.io/badge/Premiere%20Pro-2024%2B-9999FF?logo=adobepremierepro&logoColor=white)
 ![Adobe CEP 11 and 12](https://img.shields.io/badge/Adobe%20CEP-11%20%7C%2012-5C5C5C)
-![Signed ZXP](https://img.shields.io/badge/package-signed%20ZXP-2EA44F)
 ![License All rights reserved](https://img.shields.io/badge/license-all%20rights%20reserved-lightgrey)
+
+</div>
 
 **Find anything in your Adobe Premiere project and place it on the timeline in seconds.**
 
 PRONTO is a fast, keyboard-friendly search palette for Adobe Premiere Pro on Windows. Search clips, sound effects, images, graphics, sequences, and bins without digging through the Project panel. PRONTO previews where media will land, then places it at the playhead in the first collision-free track space without rippling the edit.
 
 Current release: **0.1.0** · Windows · Premiere Pro 2024 or newer
+
+![PRONTO screenshot](assets/pronto-features.png)
 
 ## ✨ Why editors use PRONTO
 
@@ -155,8 +160,6 @@ npm run sign:zxp
 The signing certificate and its Windows DPAPI-encrypted password are stored under ignored `.tools/signing/`. Back up both files securely. Each new plugin version must be packaged into a new ZXP using the same certificate.
 
 For an external certificate or signer, set `PRONTO_ZXP_SIGN_CMD`, `PRONTO_ZXP_CERTIFICATE`, `PRONTO_ZXP_CERT_PASSWORD`, and optionally `PRONTO_ZXP_TIMESTAMP_URL` before running `npm run sign:zxp`.
-
-Release history is available in [CHANGELOG.md](CHANGELOG.md).
 
 ## 📄 License
 
