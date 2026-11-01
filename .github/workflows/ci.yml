@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-package:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm test
+      - run: npm run validate:hotkey
+      - run: npm run package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PRONTO-0.1.0-windows
+          path: dist/PRONTO-0.1.0-windows.zip
+          if-no-files-found: error

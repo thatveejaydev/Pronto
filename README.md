@@ -2,6 +2,8 @@
 
 **PRONTO** (`com.pronto.ppro`) is a floating search palette for Adobe Premiere Pro on Windows. It lets you search every bin, clip, graphic, audio file, and sequence in your project and place items at the playhead in the **first collision-free track gap** without overwriting or rippling existing timeline clips.
 
+Current development release: **0.1.0**
+
 ---
 
 ## Quick Install & Uninstall (Windows)
@@ -54,3 +56,40 @@
 
 6. **Zero-Drop Queued Actions on Reopen**
    - Reopening the palette searches the remembered in-memory catalog immediately while verifying the active project/timeline in the background. If you press `Enter` within the first few milliseconds while the context check is still running, PRONTO queues your action and executes it automatically as soon as verification completes.
+
+---
+
+## Compatibility
+
+- Windows 10 or 11
+- Adobe Premiere Pro 2024 or newer (`PPRO 24.0+`)
+- Adobe CEP/CSXS 11 or 12
+
+PRONTO is currently an unsigned development extension. The installer enables CEP debug mode so Premiere can load it. Review the limitations below before using it on production projects.
+
+## Known Limitations
+
+- Premiere's CEP API does not provide an atomic insert-and-rollback operation. PRONTO validates placement afterward, but an unexpected Premiere placement may require **Undo**.
+- Unknown or adaptive audio channel layouts are handled conservatively and can report no free track space even when part of the visible audio area is empty.
+- Locked or incompatible destination tracks can prevent placement.
+- Audio preview depends on codecs supported by the CEP browser. Use **Shift+Enter** to audition unsupported files in the Source Monitor.
+- The automated suite uses a simulated Premiere API. Each release still requires smoke testing inside the supported Premiere versions.
+- macOS is not supported because the shortcut helper uses Windows APIs and PowerShell.
+
+## Development
+
+Requirements: Node.js 20+ and Windows PowerShell 5.1 or PowerShell 7.
+
+```powershell
+npm test
+npm run validate:hotkey
+npm run package
+```
+
+`npm run package` creates `dist/PRONTO-0.1.0-windows.zip`. Release history is recorded in [CHANGELOG.md](CHANGELOG.md), and support guidance is in [SUPPORT.md](SUPPORT.md).
+
+## Release Status
+
+Version 0.1.0 is a development release distributed as an unsigned ZIP installer. A signed ZXP release requires a code-signing certificate and Adobe's signing tooling; those credentials are intentionally not stored in this repository.
+
+No open-source license has been selected yet. Until the project owner adds a license, copyright law reserves reuse and redistribution rights by default.

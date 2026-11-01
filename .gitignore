@@ -1,0 +1,6 @@
+dist/
+*.zxp
+*.p12
+*.pfx
+*.key
+*.cer
